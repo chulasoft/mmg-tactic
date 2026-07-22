@@ -313,7 +313,7 @@ const CSS = `
 // ═══════════════════════════════════════════════════════════════════
 //  DATA
 // ═══════════════════════════════════════════════════════════════════
-const GH = 'https://chulasoft.github.io/magic-maidens-tactic/asset-tactic/';
+const GH = 'asset-tactic/';
 const HEROES = [{
   id: 'elena',
   n: 'Elena',
