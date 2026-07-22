@@ -45,8 +45,14 @@ code — it is consistent, and consistency beats personal preference here.
   `\n`. This is enforced by pain — a raw newline crashed the app.
 - Use unicode escapes for typography in JS strings: em-dash `—`, curly
   apostrophe `’`, curly quotes `“ ”`, star `✶`, check `✓`, arrow
-  `→`. (JSX text nodes can use the literal characters; JS string literals use
-  the escapes.)
+  `→`.
+- **Never put a `\uXXXX` escape in a JSX *text node*.** JSX text is not a JS
+  string literal — an escape there renders **literally** on screen (you see the
+  characters `✶`, not `✶`). In JSX text, write the actual glyph
+  (`✶ A Tactical RPG ✶`) or wrap it in an expression (`{'✶'}`). Escapes are
+  only for real JS strings — array/`log` entries, template literals, and ternary
+  results inside `{}`. Quick check: `grep -n '\\u[0-9A-Fa-f]\{4\}'` and confirm
+  every hit sits inside quotes/backticks, never as bare tag content.
 - Story voice: protagonist is **"you"**, never named, never gendered; present
   tense, second person, restrained. Match existing `NARR` entries.
 

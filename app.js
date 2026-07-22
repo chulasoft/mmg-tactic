@@ -1639,7 +1639,7 @@ const SCENARIOS = [{
   }]
 }, {
   id: 'c2',
-  title: 'Chapter 2 — The Burning Citadel',
+  title: 'Chapter II — The Burning Citadel',
   story: [],
   win: 'Defeat the Hell Brute and all guards.',
   lose: 'All heroes are defeated.',
@@ -2536,7 +2536,7 @@ function TitleScreen({
       textTransform: 'uppercase',
       marginBottom: 14
     }
-  }, "\\u2736 A Tactical RPG \\u2736"), /*#__PURE__*/React.createElement("h1", {
+  }, "✶ A Tactical RPG ✶"), /*#__PURE__*/React.createElement("h1", {
     className: "glow-gold",
     style: {
       fontFamily: "'Fraunces',Georgia,serif",
@@ -2557,7 +2557,7 @@ function TitleScreen({
       letterSpacing: '.1em',
       fontStyle: 'italic'
     }
-  }, "Version 1.0 \\u00B7 Eight warriors. One truth. No mercy.")), /*#__PURE__*/React.createElement("div", {
+  }, "Version 1.0 · Eight warriors. One truth. No mercy.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -3034,7 +3034,7 @@ function NarratorScreen({
         flexShrink: 0,
         marginTop: 1
       }
-    }), /*#__PURE__*/React.createElement("span", null, "You are not shown here. HP\\u00B7ATK\\u00B7MOV\\u00B7RNG shape how each companion fights. A tank, a healer, and two damage dealers is a solid foundation."))), /*#__PURE__*/React.createElement("div", {
+    }), /*#__PURE__*/React.createElement("span", null, "You are not shown here. HP·ATK·MOV·RNG shape how each companion fights. A tank, a healer, and two damage dealers is a solid foundation."))), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
         minHeight: 0,
@@ -3493,7 +3493,7 @@ function BattleScreen({
       color: phase === 'player' ? '#2dd4bf' : '#f87171',
       border: `1px solid ${phase === 'player' ? 'rgba(45,212,191,.3)' : 'rgba(248,113,113,.3)'}`
     }
-  }, "\\u25C6 ", phase === 'player' ? 'PLAYER PHASE' : 'ENEMY PHASE')), /*#__PURE__*/React.createElement("div", {
+  }, "◆ ", phase === 'player' ? 'PLAYER PHASE' : 'ENEMY PHASE')), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 5
@@ -4813,7 +4813,7 @@ function AdminScreen({
       color: '#2dd4bf',
       fontSize: '.76rem'
     }
-  }, "\\u2713 ", adminMsg), /*#__PURE__*/React.createElement(Panel, null, /*#__PURE__*/React.createElement("div", {
+  }, "✓ ", adminMsg), /*#__PURE__*/React.createElement(Panel, null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontWeight: 700,
       color: 'var(--gold)',
