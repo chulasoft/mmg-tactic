@@ -7,13 +7,15 @@ A tactical, turn-based, story-driven RPG.
 > your team had eight people, not counting you.
 > Four are sitting with you. The rest are faces you can almost see.
 
+> **New here? Read [`CONTEXT.md`](CONTEXT.md) first.** It is the mandatory
+> starting point for every contributor and AI agent — what the project is,
+> the hard rules, and where to read next. Do not touch code before reading it.
+
 ---
 
 ## Play
 
-**▶ [Play in your browser](https://YOUR-USERNAME.github.io/magic-maidens-tactic/)**
-
-*(replace `YOUR-USERNAME` after enabling GitHub Pages — see Deploy below)*
+**▶ [Play in your browser](https://chulasoft.github.io/mmg-tactic/)**
 
 No install, no build step. Open `index.html` and it runs.
 
@@ -52,6 +54,7 @@ Each has distinct stats (HP / ATK / MOV / RNG), a growth curve, a background, an
 
 ```
 .
+├── CONTEXT.md      ★ Mandatory first read — project brief + hard rules
 ├── index.html      Entry point — boot screen, CDN React, mounts the game
 ├── app.js          Compiled bundle (generated — do not edit by hand)
 ├── src/
@@ -59,7 +62,15 @@ Each has distinct stats (HP / ATK / MOV / RNG), a growth curve, a background, an
 │   ├── icons.js                   Inline SVG icon set (replaces lucide-react)
 │   └── build.js                   Compiles src → app.js
 ├── docs/
+│   ├── SKILL.md                   Detailed map + hard rules (skill format)
+│   ├── ARCHITECTURE.md            How the system fits together
+│   ├── STYLE_GUIDE.md             Coding conventions
+│   ├── FEATURE.md                 Feature status + code mapping
+│   ├── DATABASE.md                Data shapes (state / assets / save)
+│   ├── TODO.md                    Prioritised backlog
 │   └── mmt-v1-master-plan.md      Full design & implementation roadmap
+├── asset-tactic/   Hero portraits (01elena.png … 08mei.png)
+├── asset-sound/    Music / SFX stems (not yet wired — see docs/TODO.md)
 └── .nojekyll       Tells GitHub Pages to serve files as-is
 ```
 
@@ -101,13 +112,15 @@ python3 -m http.server 8000
 - Inline SVG icons, zero runtime dependencies
 - Fonts: [Fraunces](https://fonts.google.com/specimen/Fraunces) (display) + [Outfit](https://fonts.google.com/specimen/Outfit) (UI)
 
-Hero artwork is loaded from an external asset host and degrades gracefully if unavailable.
+Hero artwork ships in [`asset-tactic/`](asset-tactic/) and loads by relative path; every `<img>` degrades gracefully (hides) if a portrait is missing. The `.jsx` source keeps an absolute CDN URL so it also runs inside the Claude artifact viewer — `src/build.js` rewrites that to the relative path for the deployed bundle.
+
+Music and SFX stems live in [`asset-sound/`](asset-sound/) but are **not wired into the game yet** — see [`docs/TODO.md`](docs/TODO.md).
 
 ---
 
 ## Roadmap
 
-See [`docs/mmt-v1-master-plan.md`](docs/mmt-v1-master-plan.md) for the full plan. Current status:
+Full plan in [`docs/mmt-v1-master-plan.md`](docs/mmt-v1-master-plan.md); live feature status in [`docs/FEATURE.md`](docs/FEATURE.md); prioritised backlog in [`docs/TODO.md`](docs/TODO.md). Current status:
 
 - [x] **Phase 1 — Game feel:** damage numbers, hit flash, death dissolve, card flourish, animated movement, phase banners, sequenced enemy turns
 - [ ] **Phase 2 — Battle intro:** map reveal wave, hero spawn ceremony, enemy warp-in

@@ -22,6 +22,12 @@ jsx = jsx.replace(/^import[\s\S]*?from\s+"react"\s*/m, '');
 jsx = jsx.replace(/^import\s*\{[\s\S]*?\}\s*from\s+"lucide-react"\s*/m, '');
 jsx = jsx.replace(/export default function App\(\)/, 'function App()');
 
+// The .jsx source points hero artwork at an absolute CDN host so it works
+// inside the Claude artifact viewer (no relative paths there). The deployed
+// site ships the same portraits in ./asset-tactic/, so rewrite the base to a
+// relative path — the bundled images load with no external dependency.
+jsx = jsx.replace(/const GH = '[^']*'/, "const GH = 'asset-tactic/'");
+
 const preamble =
 `/* Magic Maidens Tactic — compiled bundle. Do not edit directly.
    Source of truth: src/magic-maidens-tactic.jsx  |  Rebuild: node src/build.js */
