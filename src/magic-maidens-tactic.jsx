@@ -285,7 +285,7 @@ const SCENARIOS = [
     ],
   },
   {
-    id:'c2',title:'Chapter 2 — The Burning Citadel',
+    id:'c2',title:'Chapter II — The Burning Citadel',
     story:[],
     win:'Defeat the Hell Brute and all guards.',lose:'All heroes are defeated.',
     w:14,h:10,
@@ -672,7 +672,7 @@ function TitleScreen({state,dispatch}){
         <div style={{textAlign:'center'}}>
           <div style={{fontSize:'.7rem',fontWeight:700,letterSpacing:'.4em',
             color:'rgba(251,191,36,.7)',textTransform:'uppercase',marginBottom:14}}>
-            \u2736 A Tactical RPG \u2736
+            ✶ A Tactical RPG ✶
           </div>
           <h1 className="glow-gold" style={{fontFamily:"'Fraunces',Georgia,serif",
             fontStyle:'italic',fontWeight:700,
@@ -684,7 +684,7 @@ function TitleScreen({state,dispatch}){
           </h1>
           <div style={{fontSize:'.78rem',color:'var(--txt3)',letterSpacing:'.1em',
             fontStyle:'italic'}}>
-            Version 1.0 \u00B7 Eight warriors. One truth. No mercy.
+            Version 1.0 · Eight warriors. One truth. No mercy.
           </div>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:10,width:240}}>
@@ -890,7 +890,7 @@ function NarratorScreen({state,dispatch}){
             background:'rgba(45,212,191,.05)',border:'1px solid rgba(45,212,191,.14)',
             fontSize:'.67rem',color:'rgba(45,212,191,.75)',display:'flex',gap:7}}>
             <Info size={12} style={{flexShrink:0,marginTop:1}}/>
-            <span>You are not shown here. HP\u00B7ATK\u00B7MOV\u00B7RNG shape how each companion fights. A tank, a healer, and two damage dealers is a solid foundation.</span>
+            <span>You are not shown here. HP·ATK·MOV·RNG shape how each companion fights. A tank, a healer, and two damage dealers is a solid foundation.</span>
           </div>
         </div>
         <div style={{flex:1,minHeight:0,overflowY:'auto',padding:'10px 12px'}}>
@@ -1100,7 +1100,7 @@ function BattleScreen({state,dispatch}){
             background:phase==='player'?'rgba(45,212,191,.15)':'rgba(248,113,113,.15)',
             color:phase==='player'?'#2dd4bf':'#f87171',
             border:`1px solid ${phase==='player'?'rgba(45,212,191,.3)':'rgba(248,113,113,.3)'}`}}>
-            \u25C6 {phase==='player'?'PLAYER PHASE':'ENEMY PHASE'}
+            ◆ {phase==='player'?'PLAYER PHASE':'ENEMY PHASE'}
           </div>
         </div>
         <div style={{display:'flex',gap:5}}>
@@ -1574,7 +1574,7 @@ function AdminScreen({state,dispatch}){
         {adminMsg&&(
           <div style={{padding:'7px 12px',borderRadius:7,background:'rgba(45,212,191,.1)',
             border:'1px solid rgba(45,212,191,.25)',color:'#2dd4bf',fontSize:'.76rem'}}>
-            \u2713 {adminMsg}
+            ✓ {adminMsg}
           </div>
         )}
         <Panel>
