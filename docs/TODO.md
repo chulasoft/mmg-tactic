@@ -49,16 +49,20 @@ The largest phase; sub-split it. See plan §4. Also authors Chapter-1 content
       into `pendingEvents`; replay sequentially; mark `firedEvents`.
 - [ ] Ship Chapter 1 with the three example events wired.
 
-**3b — Post-battle victory flow**
-- [ ] Replace the instant win modal with: victory banner → EXP tally count-up →
-      level-up + stat deltas → card-unlock ceremony → outro narrator → save prompt.
-- [ ] Defeat flow: dark banner → one fatalistic line → Retry.
+**3b — Post-battle victory flow** — ✅ base loop shipped
+- [x] Replaced the instant win modal → `PostBattle`: EXP tally → outro narration →
+      Title (`SCENARIOS[0].outro`).
+- [x] Defeat flow: fatalistic line (`SCENARIOS[].defeat`) → Retry.
+- [ ] Still TODO: victory banner sweep, animated EXP-bar/count-up, card-unlock
+      reveal, save prompt (folds into Phase 5).
 
-**3c — EXP & leveling**
-- [ ] `progress` slice: `heroExp:{}`, `chaptersCleared:[]`.
-- [ ] `expToLevel(exp)` (isolated), `+10` EXP per surviving hero per chapter.
-- [ ] Battle start uses computed level from `heroExp`; admin `partyLevels` override
-      still wins for testing. See [`DATABASE.md`](DATABASE.md) §2.
+**3c — EXP & leveling** — ✅ core shipped
+- [x] `progress` slice: `heroExp:{}`, `chaptersCleared:[]` (in `INIT`).
+- [x] `expToLevel(exp)` isolated in `core/engine.mjs`; `+10`/survivor via
+      `awardChapter`; covered by `tests/engine.test.mjs`.
+- [x] Battle start derives level from `heroExp`; admin `partyLevels` override wins.
+- [ ] Full persistent/transient nesting (`progress/ui/battle/fx`) — light seam is
+      in place (`state.progress` + `serialize/hydrateProgress`); nest fully later.
 
 ---
 

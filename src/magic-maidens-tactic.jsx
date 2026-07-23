@@ -276,6 +276,13 @@ const SCENARIOS = [
   {
     id:'c1',title:'Chapter I — The Burning Hour',
     story:[],
+    events:[],   // mid-battle triggers (Phase 3) — schema in docs/DATABASE.md
+    outro:[
+      'The last of them comes apart\nlike smoke deciding it was never there.\n\nThen quiet.\n\nThe fires are already burning lower,\nas if they, too, have lost the thread\nof whatever brought them here.',
+      'The villagers come out slowly.\n\nThey look at you — at the four who stand with you —\nand then at the bare ground\nwhere something had been standing\na breath ago.\n\nNo one says the word for it.\nThere is no word for it yet.',
+      'You look at that same patch of ground.\n\nAnd for half a second — no longer —\nyou are certain, the way you are certain of your own name\nwhen you are not trying to remember it,\nthat you have stood exactly here before.\n\nThen it is gone,\nand it is only a street, and only ash.',
+    ],
+    defeat:'The world tilts, and goes white.\n\nAnd somewhere, patient as the tide,\na voice you almost know says it again:\n\n"… once more …"',
     win:'Defeat all 4 enemies.',lose:'All heroes are defeated.',
     w:14,h:10,
     walls:[[4,2],[4,3],[4,4],[4,7],[4,8],[4,9],[8,1],[8,2],[9,2],[12,4],[12,5],[13,6]],
@@ -287,6 +294,9 @@ const SCENARIOS = [
   {
     id:'c2',title:'Chapter II — The Burning Citadel',
     story:[],
+    events:[],
+    outro:[],   // authored when Chapter 2 content lands
+    defeat:'Darkness folds back over the citadel,\nand the voice does not even bother to whisper.',
     win:'Defeat the Hell Brute and all guards.',lose:'All heroes are defeated.',
     w:14,h:10,
     walls:[[2,1],[2,2],[3,8],[3,9],[7,3],[7,4],[7,6],[7,7],[11,1],[11,2],[11,8],[11,9]],
@@ -313,81 +323,12 @@ const NARR = [
 // ═══════════════════════════════════════════════════════════════════
 //  GAME ENGINE UTILITIES
 // ═══════════════════════════════════════════════════════════════════
+//  The PURE engine (calcStat, heroStats, expToLevel, applyCard, bfsMove,
+//  getAttackRange, enemyAI) lives in src/core/engine.mjs and is inlined by
+//  src/build.js — those names are available as globals here. Only data-glue
+//  helpers that reference the DATA tables stay in this file.
 function getHeroCards(heroId, level=1) {
   return (CARDS[heroId] || []).filter(c => c.lv <= level)
-}
-function calcStat(base, rate, lv) {
-  return Math.round(base + rate * (lv - 1) / 10)
-}
-function heroStats(h, lv=1) {
-  return {
-    hp: calcStat(h.hp, h.growth.hp, lv),
-    at: calcStat(h.at, h.growth.at, lv),
-    mv: h.mv + Math.floor(h.growth.mv * (lv-1) / 10),
-    rg: h.rg + Math.floor(h.growth.rg * (lv-1) / 10),
-  }
-}
-function applyCard(unit, card) {
-  let at=unit.at, mv=unit.mv, rg=unit.rg, hp=unit.hp, mhp=unit.mhp
-  let extraAtk=0, extraMv=0, dr=unit.dr||0
-  for (const fx of (card.fx||[])) {
-    if (fx.t==='B'&&fx.s==='at') at+=fx.v
-    if (fx.t==='B'&&fx.s==='mv') mv+=fx.v
-    if (fx.t==='B'&&fx.s==='rg') rg+=fx.v
-    if (fx.t==='H') hp=Math.min(mhp,hp+(fx.v===999?mhp:fx.v))
-    if (fx.t==='D') dr+=fx.v
-    if (fx.t==='X'&&fx.s==='at') extraAtk+=fx.v
-    if (fx.t==='X'&&fx.s==='mv') extraMv+=fx.v
-  }
-  return {...unit, at, mv, rg, hp, dr, atkLeft:1+extraAtk, mvLeft:mv, cardPlayed:card.id}
-}
-function bfsMove(unit, all, w, h, walls) {
-  const key=(x,y)=>`${x},${y}`
-  const wall=new Set(walls.map(([x,y])=>key(x,y)))
-  const occ=new Set(all.map(u=>key(u.x,u.y)))
-  const visited=new Set([key(unit.x,unit.y)])
-  const queue=[{x:unit.x,y:unit.y,steps:0}]
-  const reachable=[]
-  while(queue.length){
-    const{x,y,steps}=queue.shift()
-    for(const[dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]){
-      const nx=x+dx,ny=y+dy,k=key(nx,ny)
-      if(nx<0||ny<0||nx>=w||ny>=h||wall.has(k)||visited.has(k)) continue
-      visited.add(k)
-      if(!occ.has(k)){
-        if(steps+1<=unit.mvLeft) reachable.push({x:nx,y:ny})
-        if(steps+1<unit.mvLeft) queue.push({x:nx,y:ny,steps:steps+1})
-      }
-    }
-  }
-  return reachable
-}
-function getAttackRange(unit, targets) {
-  return targets.filter(t=>{
-    const dist=Math.abs(t.x-unit.x)+Math.abs(t.y-unit.y)
-    return dist>0 && dist<=unit.rg
-  })
-}
-function enemyAI(enemy, heroes, all, w, h, walls) {
-  const alive=heroes.filter(h=>h.hp>0)
-  if(!alive.length) return {movedEnemy:enemy,attackedHero:null,dmg:0,targetId:null}
-  const target=alive.reduce((a,b)=>
-    (Math.abs(a.x-enemy.x)+Math.abs(a.y-enemy.y)) <= (Math.abs(b.x-enemy.x)+Math.abs(b.y-enemy.y))?a:b)
-  const reachable=bfsMove({...enemy,mvLeft:enemy.mv},all,w,h,walls)
-  let moved={...enemy}
-  if(reachable.length){
-    const best=reachable.reduce((a,b)=>
-      (Math.abs(a.x-target.x)+Math.abs(a.y-target.y)) <= (Math.abs(b.x-target.x)+Math.abs(b.y-target.y))?a:b)
-    moved={...enemy,x:best.x,y:best.y}
-  }
-  const dist=Math.abs(moved.x-target.x)+Math.abs(moved.y-target.y)
-  let attackedHero=null
-  if(dist<=moved.rg){
-    const dmg=Math.max(1,moved.at-(target.dr||0))
-    attackedHero={...target,hp:Math.max(0,target.hp-dmg)}
-    return{movedEnemy:moved,attackedHero,dmg,targetId:target.id}
-  }
-  return{movedEnemy:moved,attackedHero:null,dmg:0,targetId:null}
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -396,9 +337,13 @@ function enemyAI(enemy, heroes, all, w, h, walls) {
 const INIT = {
   screen:'title',prevScreen:null,
   party:[],partyLevels:{},
+  // ── persistent slice (survives battles; the ONLY thing save/load touches;
+  //    see serializeProgress/hydrateProgress in core/engine) ──
+  progress:{heroExp:{},chaptersCleared:[]},
   scenario:null,heroes:[],enemies:[],
   selectedHeroId:null,selectedCard:null,moveRange:[],atkRange:[],
   phase:'player',round:1,log:[],result:null,
+  postBattle:null,      // {award:[...], outroLines:[...]} transient victory data
   godMode:false,narratorSlide:0,kbTab:'heroes',kbHero:null,adminMsg:'',
   floaters:[],          // [{id,x,y,text,color,big}]
   hitFlash:{},          // {unitId: timestamp}
@@ -421,7 +366,8 @@ function reducer(state, action) {
       const sc=action.scenario
       const heroUnits=s.party.map((hid,i)=>{
         const h=HEROES.find(x=>x.id===hid)
-        const lv=s.partyLevels[hid]||1
+        // Level from earned EXP; the admin per-hero override wins when set (testing).
+        const lv=s.partyLevels[hid]||expToLevel(s.progress.heroExp[hid]||0)
         const st=heroStats(h,lv)
         const start=sc.heroStarts[i]||{x:0,y:i}
         return{id:hid,n:h.n,cl:h.cl,ic:h.ic,img:h.img,
@@ -435,7 +381,7 @@ function reducer(state, action) {
       })
       return{...s,screen:'battle',scenario:sc,heroes:heroUnits,enemies:enemyUnits,
         selectedHeroId:null,selectedCard:null,moveRange:[],atkRange:[],
-        phase:'player',round:1,log:['Battle start!'],result:null,
+        phase:'player',round:1,log:['Battle start!'],result:null,postBattle:null,
         floaters:[],hitFlash:{},playingCard:null,banner:null,enemyQueue:[],phaseAnimating:false}
     }
     case 'SELECT_HERO':{
@@ -495,8 +441,15 @@ function reducer(state, action) {
       const newFloaters=[...s.floaters,floater]
       const newHitFlash={...s.hitFlash,[e.id]:Date.now()}
       const logMsg=`${h.n} hits ${e.n} for ${dmg}!${updE.hp<=0?' Defeated!':''}`
-      if(won) return{...s,heroes:newHeroes,enemies:newEnemies,atkRange:[],result:'win',
-        floaters:newFloaters,hitFlash:newHitFlash,log:[logMsg,...s.log.slice(0,19)]}
+      if(won){
+        const survivors=newHeroes.filter(x=>x.hp>0)
+        const{progress,award}=awardChapter(s.progress,s.scenario.id,survivors.map(x=>x.id))
+        const richAward=award.map(a=>{const u=survivors.find(x=>x.id===a.heroId);
+          return{...a,n:u.n,cl:u.cl,img:u.img}})
+        return{...s,heroes:newHeroes,enemies:newEnemies,atkRange:[],result:'win',
+          progress,postBattle:{award:richAward,outroLines:s.scenario.outro||[]},
+          floaters:newFloaters,hitFlash:newHitFlash,log:[logMsg,...s.log.slice(0,19)]}
+      }
       const ar=updH.atkLeft>0?getAttackRange(updH,stillAlive):[]
       return{...s,heroes:newHeroes,enemies:newEnemies,atkRange:ar,
         floaters:newFloaters,hitFlash:newHitFlash,log:[logMsg,...s.log.slice(0,19)]}
@@ -811,7 +764,7 @@ function NarratorScreen({state,dispatch}){
         <div style={{width:90,height:1,background:'rgba(251,191,36,.25)',margin:'0 auto 20px'}}/>
         <div style={{fontSize:'.85rem',color:'rgba(255,255,255,.42)',fontStyle:'italic',
           maxWidth:420,lineHeight:1.8,fontFamily:"'Fraunces',serif",margin:'0 auto'}}>
-          {cur.sub.split('\\n').map((l,i)=><div key={i}>{l}</div>)}
+          {cur.sub.split('\n').map((l,i)=><div key={i}>{l}</div>)}
         </div>
         <div style={{marginTop:36,fontSize:'.56rem',fontWeight:600,letterSpacing:'.32em',
           textTransform:'uppercase',color:'rgba(255,255,255,.16)',
@@ -992,6 +945,112 @@ function NarratorScreen({state,dispatch}){
           letterSpacing:'.1em'}}>{slide+1} / {NARR.length}</div>
         <Btn cls={done?'btn-gold':'btn-ghost'} sm icon={ChevronRight}
           onClick={done?next:skip}>{done?'Continue':'Skip'}</Btn>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  POST-BATTLE  (victory: EXP tally → outro narration → title · defeat: line → retry)
+// ═══════════════════════════════════════════════════════════════════
+function PostBattle({state,dispatch}){
+  const{result,scenario,postBattle}=state
+  const win=result==='win'
+  const outroLines=(postBattle&&postBattle.outroLines)||[]
+  const award=(postBattle&&postBattle.award)||[]
+
+  // ALL HOOKS AT TOP LEVEL (before any conditional return — see §hard rules)
+  const [stage,setStage]=useState('summary')   // 'summary' | 'outro'
+  const [oi,setOi]=useState(0)
+  const outroTxt = stage==='outro' ? (outroLines[oi]||'') : ''
+  const { visibleLines, done, skip } = useTypewriter(outroTxt, 24)
+
+  const toTitle=()=>dispatch({type:'GO',to:'title'})
+  const lastOutro=oi>=outroLines.length-1
+
+  const Multi=({txt})=>(
+    <div style={{fontFamily:"'Fraunces',serif",fontStyle:'italic',
+      fontSize:'clamp(.9rem,1.8vw,1.05rem)',lineHeight:2,color:'var(--txt)',
+      textAlign:'left',maxWidth:520,margin:'0 auto'}}>
+      {txt.split('\n').map((l,i)=><div key={i} style={{minHeight:'1.4em'}}>{l}</div>)}
+    </div>
+  )
+
+  // ── DEFEAT ──
+  if(!win){
+    return(
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.9)',zIndex:50,
+        display:'flex',alignItems:'center',justifyContent:'center',padding:30}}>
+        <div style={{textAlign:'center',animation:'fadeIn .6s ease both',maxWidth:520}}>
+          <div style={{fontSize:'.6rem',fontWeight:700,letterSpacing:'.4em',textTransform:'uppercase',
+            color:'rgba(248,113,113,.6)',fontFamily:"'Outfit',sans-serif",marginBottom:18}}>Defeat</div>
+          <Multi txt={scenario.defeat||'All heroes have fallen.'}/>
+          <div style={{display:'flex',gap:8,justifyContent:'center',marginTop:34}}>
+            <Btn cls="btn-ghost" icon={RotateCcw} onClick={()=>dispatch({type:'START_GAME',scenario})}>Retry</Btn>
+            <Btn cls="btn-ghost" icon={ArrowLeft} onClick={toTitle}>Title</Btn>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── VICTORY · outro narration ──
+  if(stage==='outro'){
+    const advance=()=>{ if(!done){skip();return} if(!lastOutro){setOi(oi+1)} else {toTitle()} }
+    return(
+      <div style={{position:'fixed',inset:0,background:'linear-gradient(135deg,#0a0612,#120818,#0a0612)',
+        zIndex:50,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+        padding:40,cursor:'pointer'}} onClick={advance}>
+        <Multi txt={visibleLines.map(l=>l.text).join('\n')}/>
+        <div style={{marginTop:34,fontSize:'.54rem',fontWeight:600,letterSpacing:'.28em',
+          textTransform:'uppercase',color:'rgba(255,255,255,.18)',fontFamily:"'Outfit',sans-serif",
+          animation:'pulse 1.8s ease-in-out infinite'}}>
+          {done?(lastOutro?'tap to close':'tap to continue'):'tap to skip'}
+        </div>
+      </div>
+    )
+  }
+
+  // ── VICTORY · EXP tally ──
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:50,
+      display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+      <div className="panel" style={{padding:30,maxWidth:420,width:'100%',animation:'fadeIn .4s ease both'}}>
+        <div style={{textAlign:'center',marginBottom:20}}>
+          <div style={{fontSize:'.6rem',fontWeight:700,letterSpacing:'.4em',textTransform:'uppercase',
+            color:'rgba(251,191,36,.6)',fontFamily:"'Outfit',sans-serif",marginBottom:8}}>Victory</div>
+          <div className="glow-gold" style={{fontFamily:"'Fraunces',serif",fontStyle:'italic',fontWeight:700,
+            fontSize:'1.8rem',background:'linear-gradient(135deg,#fef3c7,#fbbf24,#d97706)',
+            WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>The Burning Hour</div>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:22}}>
+          {award.map(a=>(
+            <div key={a.heroId} style={{display:'flex',alignItems:'center',gap:10,padding:'7px 10px',
+              borderRadius:8,background:'rgba(255,255,255,.02)',border:'1px solid var(--border)'}}>
+              <div style={{width:28,height:28,borderRadius:'50%',overflow:'hidden',
+                border:`2px solid ${a.cl}55`,flexShrink:0}}>
+                <img src={a.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'20% 10%'}}
+                  onError={e=>e.target.style.display='none'}/>
+              </div>
+              <span style={{fontSize:'.78rem',fontWeight:600,color:a.cl,flex:1}}>{a.n}</span>
+              {a.toLv>a.fromLv&&(
+                <span className="chip chip-u" style={{fontSize:'.56rem'}}>Lv {a.fromLv} → {a.toLv}</span>
+              )}
+              <span style={{fontFamily:"'Fraunces',serif",fontStyle:'italic',fontWeight:700,
+                color:'var(--green)',fontSize:'.85rem',fontVariantNumeric:'tabular-nums'}}>+{a.gained} EXP</span>
+            </div>
+          ))}
+          {!award.length&&(
+            <div style={{fontSize:'.72rem',color:'var(--txt3)',textAlign:'center',padding:'6px 0'}}>
+              No survivors to reward.
+            </div>
+          )}
+        </div>
+        <div style={{display:'flex',justifyContent:'center'}}>
+          {outroLines.length>0
+            ?<Btn cls="btn-gold" lg icon={ChevronRight} onClick={()=>{setOi(0);setStage('outro')}}>Continue</Btn>
+            :<Btn cls="btn-gold" lg icon={ArrowLeft} onClick={toTitle}>Return to Title</Btn>}
+        </div>
       </div>
     </div>
   )
@@ -1357,25 +1416,7 @@ function BattleScreen({state,dispatch}){
           </div>
         </div>
       )}
-      {result&&(
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',
-          display:'flex',alignItems:'center',justifyContent:'center',zIndex:50}}>
-          <div className="panel" style={{padding:36,textAlign:'center',maxWidth:380,animation:'fadeIn .4s ease both'}}>
-            <div style={{fontSize:'3rem',marginBottom:10}}>{result==='win'?'\u2B50':'\uD83D\uDC80'}</div>
-            <h2 style={{fontFamily:"'Fraunces',serif",fontStyle:'italic',
-              color:result==='win'?'var(--gold)':'#f87171',fontSize:'1.5rem',marginBottom:8}}>
-              {result==='win'?'Victory.':'Defeat.'}
-            </h2>
-            <p style={{color:'var(--txt2)',marginBottom:22,fontSize:'.82rem',lineHeight:1.6}}>
-              {result==='win'?'All enemies have been defeated.':'All heroes have fallen.'}
-            </p>
-            <div style={{display:'flex',gap:8,justifyContent:'center'}}>
-              <Btn cls="btn-ghost" icon={RotateCcw} onClick={()=>dispatch({type:'START_GAME',scenario})}>Retry</Btn>
-              <Btn cls="btn-gold" icon={ArrowLeft} onClick={()=>dispatch({type:'GO',to:'title'})}>Title</Btn>
-            </div>
-          </div>
-        </div>
-      )}
+      {result&&<PostBattle state={state} dispatch={dispatch}/>}
     </div>
   )
 }
@@ -1654,6 +1695,8 @@ function AdminScreen({state,dispatch}){
             background:'rgba(0,0,0,.3)',borderRadius:5,padding:9,maxHeight:140,overflowY:'auto',lineHeight:1.6}}>
             <div>screen: {state.screen}</div>
             <div>party: [{state.party.join(', ')}]</div>
+            <div>cleared: [{state.progress.chaptersCleared.join(', ')}]</div>
+            <div>heroExp: {Object.entries(state.progress.heroExp).map(([k,v])=>`${k}:${v}`).join(' ')||'—'}</div>
             <div>godMode: {String(godMode)}</div>
             <div>round: {state.round}</div>
             <div>heroes alive: {state.heroes.filter(h=>h.hp>0).length}</div>

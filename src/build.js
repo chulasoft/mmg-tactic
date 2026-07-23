@@ -36,13 +36,28 @@ const { useState, useReducer, useEffect, useCallback, useRef, useMemo } = React;
 
 const icons = fs.readFileSync(path.join(ROOT, 'src', 'icons.js'), 'utf8');
 
+// Pure ESM core modules, inlined in order. Each is authored as ESM (so
+// `node --test` can import it directly); for the browser bundle we strip the
+// module syntax and concatenate — the exported names become plain globals that
+// the app source below can call.
+const CORE = [
+  'src/core/engine.mjs',
+];
+function inlineCore(rel) {
+  let code = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  code = code.replace(/^\s*import[\s\S]*?;?\s*$/mg, '');   // drop any import lines
+  code = code.replace(/^export\s+/mg, '');                  // `export function/const` → global
+  return `\n/* inlined: ${rel} */\n` + code + '\n';
+}
+const core = CORE.map(inlineCore).join('');
+
 const mount = `
 // ── Mount ──
 const __root = ReactDOM.createRoot(document.getElementById('root'));
 __root.render(React.createElement(App));
 `;
 
-const out = babel.transformSync(preamble + icons + '\n' + jsx + mount, {
+const out = babel.transformSync(preamble + icons + '\n' + core + '\n' + jsx + mount, {
   presets: [
     ['@babel/preset-react', { runtime: 'classic' }],
     ['@babel/preset-env',   { targets: { esmodules: true }, modules: false }],
