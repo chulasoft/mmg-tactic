@@ -1816,6 +1816,7 @@ const SCENARIOS = [{
   id: 'c1',
   title: 'Chapter I — The Burning Hour',
   story: [],
+  objective: 'DEFEAT ALL ENEMIES',
   events: [],
   // mid-battle triggers (Phase 3) — schema in docs/DATABASE.md
   outro: ['The last of them comes apart\nlike smoke deciding it was never there.\n\nThen quiet.\n\nThe fires are already burning lower,\nas if they, too, have lost the thread\nof whatever brought them here.', 'The villagers come out slowly.\n\nThey look at you — at the four who stand with you —\nand then at the bare ground\nwhere something had been standing\na breath ago.\n\nNo one says the word for it.\nThere is no word for it yet.', 'You look at that same patch of ground.\n\nAnd for half a second — no longer —\nyou are certain, the way you are certain of your own name\nwhen you are not trying to remember it,\nthat you have stood exactly here before.\n\nThen it is gone,\nand it is only a street, and only ash.'],
@@ -1859,6 +1860,7 @@ const SCENARIOS = [{
   id: 'c2',
   title: 'Chapter II — The Burning Citadel',
   story: [],
+  objective: 'DEFEAT THE HELL BRUTE',
   events: [],
   outro: [],
   // authored when Chapter 2 content lands
@@ -1985,6 +1987,8 @@ const INIT = {
   round: 1,
   log: [],
   result: null,
+  introStage: 'done',
+  // battle-intro ceremony: map→heroes→enemies→objective→done
   postBattle: null,
   // {award:[...], outroLines:[...]} transient victory data
   godMode: false,
@@ -2086,12 +2090,14 @@ function reducer(state, action) {
           log: ['Battle start!'],
           result: null,
           postBattle: null,
+          introStage: 'map',
+          phaseAnimating: true,
+          // play the intro ceremony; input locked until 'done'
           floaters: [],
           hitFlash: {},
           playingCard: null,
           banner: null,
-          enemyQueue: [],
-          phaseAnimating: false
+          enemyQueue: []
         };
       }
     case 'SELECT_HERO':
@@ -2319,6 +2325,25 @@ function reducer(state, action) {
             tone: 'enemy'
           },
           log: ['\u26A1 Enemy Phase!', ...s.log.slice(0, 19)]
+        };
+      }
+    case 'SET_INTRO':
+      {
+        const stage = action.stage;
+        let banner = s.banner;
+        if (stage === 'objective') banner = {
+          text: s.scenario.objective || 'DEFEAT ALL ENEMIES',
+          tone: 'gold'
+        };
+        if (stage === 'done') banner = {
+          text: `ROUND ${String(s.round).padStart(2, '0')} — PLAYER PHASE`,
+          tone: 'player'
+        };
+        return {
+          ...s,
+          introStage: stage,
+          phaseAnimating: stage !== 'done',
+          banner
         };
       }
     case 'CLEAR_BANNER':
@@ -3845,7 +3870,47 @@ function BattleScreen({
       queueRunning.current = false;
     };
   }, [state.phase, state.enemyQueue, dispatch]);
+
+  // ── Battle intro ceremony: advance each stage after its beat (skippable) ──
+  useEffect(() => {
+    const stage = state.introStage;
+    if (!stage || stage === 'done') return;
+    // Respect reduced motion — jump straight to a playable board.
+    if (stage === 'map' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      dispatch({
+        type: 'SET_INTRO',
+        stage: 'done'
+      });
+      return;
+    }
+    const dur = {
+      map: 1100,
+      heroes: 1600,
+      enemies: 1200,
+      objective: 1000
+    }[stage];
+    const next = {
+      map: 'heroes',
+      heroes: 'enemies',
+      enemies: 'objective',
+      objective: 'done'
+    }[stage];
+    if (!next) return;
+    const t = setTimeout(() => dispatch({
+      type: 'SET_INTRO',
+      stage: next
+    }), dur);
+    return () => clearTimeout(t);
+  }, [state.introStage, dispatch]);
   if (!scenario) return null;
+  const introStep = {
+    map: 0,
+    heroes: 1,
+    enemies: 2,
+    objective: 3,
+    done: 4
+  }[state.introStage] ?? 4;
+  const introActive = introStep < 4;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -4150,7 +4215,11 @@ function BattleScreen({
       style: {
         width: TILE,
         height: TILE,
-        background: isWall ? undefined : xZ
+        background: isWall ? undefined : xZ,
+        ...(state.introStage === 'map' ? {
+          animation: 'tilePop .4s ease both',
+          animationDelay: `${(x + y) * 26}ms`
+        } : {})
       },
       onClick: () => {
         if (state.phaseAnimating) return;
@@ -4172,8 +4241,9 @@ function BattleScreen({
         opacity: .4
       }
     }, "🧱"));
-  }))), heroes.filter(h => h.hp > 0 || dyingIds.has(h.id)).map(h => {
+  }))), introStep >= 1 && heroes.filter(h => h.hp > 0 || dyingIds.has(h.id)).map((h, hi) => {
     const flashing = hitFlash[h.id] && now - hitFlash[h.id] < 250;
+    const spawning = state.introStage === 'heroes';
     return /*#__PURE__*/React.createElement("div", {
       key: h.id,
       className: `board-token ${dyingIds.has(h.id) ? 'dying' : ''} ${flashing ? 'flashing' : ''}`,
@@ -4190,12 +4260,32 @@ function BattleScreen({
         type: 'SELECT_HERO',
         id: h.id
       })
-    }, /*#__PURE__*/React.createElement("div", {
+    }, spawning && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'absolute',
+        top: -13,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        fontSize: '.5rem',
+        fontWeight: 800,
+        letterSpacing: '.14em',
+        textTransform: 'uppercase',
+        color: h.cl,
+        whiteSpace: 'nowrap',
+        fontFamily: "'Outfit',sans-serif",
+        pointerEvents: 'none',
+        animation: 'fadeIn .4s ease both'
+      }
+    }, h.n), /*#__PURE__*/React.createElement("div", {
       className: `token ${selectedHeroId === h.id ? 'token-sel' : ''} ${h.done ? 'token-done' : ''}`,
       style: {
         borderColor: h.cl,
         background: 'var(--bg2)',
-        cursor: h.hp > 0 && !h.done ? 'pointer' : 'default'
+        cursor: h.hp > 0 && !h.done ? 'pointer' : 'default',
+        ...(spawning ? {
+          animation: `tokenSpawn .5s ease ${hi * 140}ms both`,
+          boxShadow: `0 0 0 3px ${h.cl}55,0 0 16px ${h.cl}44`
+        } : {})
       }
     }, /*#__PURE__*/React.createElement("img", {
       src: h.img,
@@ -4215,9 +4305,10 @@ function BattleScreen({
       mhp: h.mhp,
       cl: h.cl
     })));
-  }), enemies.filter(e => e.hp > 0 || dyingIds.has(e.id)).map(e => {
+  }), introStep >= 2 && enemies.filter(e => e.hp > 0 || dyingIds.has(e.id)).map((e, ei) => {
     const canAtk = atkSet.has(e.id);
     const flashing = hitFlash[e.id] && now - hitFlash[e.id] < 250;
+    const warping = state.introStage === 'enemies';
     return /*#__PURE__*/React.createElement("div", {
       key: e.id,
       className: `board-token ${dyingIds.has(e.id) ? 'dying' : ''} ${flashing ? 'flashing' : ''}`,
@@ -4240,7 +4331,11 @@ function BattleScreen({
         borderColor: '#f87171',
         background: '#200a0a',
         fontSize: '.85rem',
-        cursor: canAtk ? 'pointer' : 'default'
+        cursor: canAtk ? 'pointer' : 'default',
+        ...(warping ? {
+          animation: `warpIn .55s ease ${ei * 220}ms both`,
+          boxShadow: '0 0 14px rgba(248,113,113,.6)'
+        } : {})
       }
     }, e.ic), e.hp < e.mhp && e.hp > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
@@ -4493,30 +4588,64 @@ function BattleScreen({
       padding: '1px 0',
       lineHeight: 1.4
     }
-  }, l))))), state.banner && /*#__PURE__*/React.createElement("div", {
-    className: "phase-banner"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "rule",
+  }, l))))), introActive && /*#__PURE__*/React.createElement("div", {
+    onClick: () => dispatch({
+      type: 'SET_INTRO',
+      stage: 'done'
+    }),
     style: {
-      background: `linear-gradient(to right,transparent,${state.banner.tone === 'enemy' ? 'rgba(248,113,113,.4)' : 'rgba(45,212,191,.4)'})`
+      position: 'fixed',
+      inset: 0,
+      zIndex: 45,
+      cursor: 'pointer',
+      background: 'transparent'
     }
-  }), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontFamily: "'Outfit',sans-serif",
-      fontWeight: 800,
-      fontSize: '1.05rem',
+      position: 'absolute',
+      bottom: 22,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      fontSize: '.54rem',
+      fontWeight: 600,
       letterSpacing: '.28em',
       textTransform: 'uppercase',
-      color: state.banner.tone === 'enemy' ? '#f87171' : '#2dd4bf',
-      textShadow: `0 0 30px ${state.banner.tone === 'enemy' ? 'rgba(248,113,113,.5)' : 'rgba(45,212,191,.5)'}`,
-      whiteSpace: 'nowrap'
+      color: 'rgba(255,255,255,.28)',
+      fontFamily: "'Outfit',sans-serif",
+      animation: 'pulse 1.8s ease-in-out infinite'
     }
-  }, state.banner.text), /*#__PURE__*/React.createElement("div", {
-    className: "rule",
-    style: {
-      background: `linear-gradient(to left,transparent,${state.banner.tone === 'enemy' ? 'rgba(248,113,113,.4)' : 'rgba(45,212,191,.4)'})`
-    }
-  })), playingCard && /*#__PURE__*/React.createElement("div", {
+  }, "tap to skip")), state.banner && (() => {
+    const tc = {
+      enemy: ['#f87171', 'rgba(248,113,113,'],
+      gold: ['#fbbf24', 'rgba(251,191,36,'],
+      player: ['#2dd4bf', 'rgba(45,212,191,']
+    }[state.banner.tone] || ['#2dd4bf', 'rgba(45,212,191,'];
+    const [col, rgb] = tc;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "phase-banner"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "rule",
+      style: {
+        background: `linear-gradient(to right,transparent,${rgb}.4))`
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Outfit',sans-serif",
+        fontWeight: 800,
+        fontSize: '1.05rem',
+        letterSpacing: '.28em',
+        textTransform: 'uppercase',
+        color: col,
+        textShadow: `0 0 30px ${rgb}.5)`,
+        whiteSpace: 'nowrap'
+      }
+    }, state.banner.text), /*#__PURE__*/React.createElement("div", {
+      className: "rule",
+      style: {
+        background: `linear-gradient(to left,transparent,${rgb}.4))`
+      }
+    }));
+  })(), playingCard && /*#__PURE__*/React.createElement("div", {
     className: "card-flourish",
     style: {
       border: `1px solid ${playingCard.card.tp === 'U' ? 'rgba(251,191,36,.5)' : 'rgba(255,255,255,.15)'}`,

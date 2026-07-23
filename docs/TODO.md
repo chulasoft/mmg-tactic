@@ -16,23 +16,21 @@ Status keys: **P0** = do next, **P1** = high, **P2** = medium, **P3** = later.
 
 ---
 
-## P0 — Phase 2: Battle intro sequence
+## ✅ Phase 2 — Battle intro sequence (shipped)
 
-Entering a chapter should feel like a moment. See plan §3, and
-[`FEATURE.md`](FEATURE.md) → Not started.
+- [x] `introStage:'map'|'heroes'|'enemies'|'objective'|'done'` in state,
+      advanced by a self-scheduling `BattleScreen` `useEffect` (each stage times
+      the next); `SET_INTRO` reducer case.
+- [x] Map reveal — tiles pop in as a diagonal wave (`animationDelay:(x+y)*26ms`).
+- [x] Hero spawn — tokens scale in (`tokenSpawn`, staggered) with a colored ring
+      + name plate.
+- [x] Enemy warp-in — `warpIn` keyframe + red shimmer, visually distinct.
+- [x] Objective banner (gold) + Round-01 banner (teal), then control unlocks.
+- [x] Full-screen catcher locks input and skips to `done` on click; reduced-motion
+      jumps straight to a playable board. Retry / admin-jump replay the full intro.
 
-- [ ] Add `introStage:'map'|'heroes'|'enemies'|'objective'|'done'` to state,
-      progressed by chained timeouts in a `BattleScreen` `useEffect`.
-- [ ] Map reveal — tiles fade in as a diagonal wave (`animation-delay:(x+y)*28ms`).
-- [ ] Hero spawn — tokens scale in one-by-one with a teal ring + name plate.
-- [ ] Enemy warp-in — visually distinct (light-slit expand + red shimmer),
-      lore-consistent ("they simply arrive").
-- [ ] Objective banner + Round 1 banner, then unlock control.
-- [ ] Any click skips cleanly to `done`. Admin jump replays intro (full or ½-speed;
-      document the choice).
-
-Reuse the existing token-overlay layer and banner infra
-([`ARCHITECTURE.md`](ARCHITECTURE.md) §5).
+Next polish (optional): 50%-speed variant for admin re-jumps; per-hero spawn SFX
+once audio lands.
 
 ---
 

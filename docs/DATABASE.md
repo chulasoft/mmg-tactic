@@ -84,6 +84,10 @@ Ids: `goblin, demon, rat, mage, brute`.
 {
   id:'c1', title:'Chapter I — The Burning Hour',
   story:[],                       // reserved (empty today) — see FEATURE.md
+  objective:'DEFEAT ALL ENEMIES', // gold intro banner text
+  events:[],                      // mid-battle triggers (Phase 3) — schema below
+  outro:[ 'line one\nline two', … ],  // post-victory narration slides (typewriter)
+  defeat:'…\n…',                  // shown on the defeat overlay
   win:'Defeat all 4 enemies.', lose:'All heroes are defeated.',
   w:14, h:10,                     // grid size
   walls:[ [x,y], … ],             // impassable tiles
@@ -92,8 +96,9 @@ Ids: `goblin, demon, rat, mage, brute`.
 }
 ```
 
-> When the event system (Phase 3) lands, scenarios gain `events:[]` and `outro:[]`
-> arrays — schema is specified in the master plan §4.1.
+`outro` / `defeat` drive the `PostBattle` flow; `objective` is the intro
+ceremony's gold banner. `events` is an empty schema field today — when the event
+system (Phase 3) lands it fills with trigger/action objects per master plan §4.1.
 
 ### `NARR` — story slides (title-to-battle flow)
 
@@ -116,10 +121,13 @@ Ids: `goblin, demon, rat, mage, brute`.
 {
   screen:'title', prevScreen:null,          // router
   party:[], partyLevels:{},                 // hero ids picked; admin level overrides
+  progress:{ heroExp:{}, chaptersCleared:[] },  // persistent slice (save/load seam)
   scenario:null, heroes:[], enemies:[],     // active battle
   selectedHeroId:null, selectedCard:null,
   moveRange:[], atkRange:[],                 // highlighted tiles
   phase:'player', round:1, log:[], result:null,
+  introStage:'done',   // battle-intro ceremony: map→heroes→enemies→objective→done
+  postBattle:null,     // {award:[...], outroLines:[...]} transient victory data
   godMode:false,
   narratorSlide:0,
   kbTab:'heroes', kbHero:null,              // Knowledge Base nav

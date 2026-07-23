@@ -276,6 +276,7 @@ const SCENARIOS = [
   {
     id:'c1',title:'Chapter I — The Burning Hour',
     story:[],
+    objective:'DEFEAT ALL ENEMIES',
     events:[],   // mid-battle triggers (Phase 3) — schema in docs/DATABASE.md
     outro:[
       'The last of them comes apart\nlike smoke deciding it was never there.\n\nThen quiet.\n\nThe fires are already burning lower,\nas if they, too, have lost the thread\nof whatever brought them here.',
@@ -294,6 +295,7 @@ const SCENARIOS = [
   {
     id:'c2',title:'Chapter II — The Burning Citadel',
     story:[],
+    objective:'DEFEAT THE HELL BRUTE',
     events:[],
     outro:[],   // authored when Chapter 2 content lands
     defeat:'Darkness folds back over the citadel,\nand the voice does not even bother to whisper.',
@@ -343,6 +345,7 @@ const INIT = {
   scenario:null,heroes:[],enemies:[],
   selectedHeroId:null,selectedCard:null,moveRange:[],atkRange:[],
   phase:'player',round:1,log:[],result:null,
+  introStage:'done',    // battle-intro ceremony: map→heroes→enemies→objective→done
   postBattle:null,      // {award:[...], outroLines:[...]} transient victory data
   godMode:false,narratorSlide:0,kbTab:'heroes',kbHero:null,adminMsg:'',
   floaters:[],          // [{id,x,y,text,color,big}]
@@ -382,7 +385,8 @@ function reducer(state, action) {
       return{...s,screen:'battle',scenario:sc,heroes:heroUnits,enemies:enemyUnits,
         selectedHeroId:null,selectedCard:null,moveRange:[],atkRange:[],
         phase:'player',round:1,log:['Battle start!'],result:null,postBattle:null,
-        floaters:[],hitFlash:{},playingCard:null,banner:null,enemyQueue:[],phaseAnimating:false}
+        introStage:'map',phaseAnimating:true,   // play the intro ceremony; input locked until 'done'
+        floaters:[],hitFlash:{},playingCard:null,banner:null,enemyQueue:[]}
     }
     case 'SELECT_HERO':{
       if(s.phase!=='player') return s
@@ -485,6 +489,13 @@ function reducer(state, action) {
         enemyQueue:queue,selectedHeroId:null,selectedCard:null,moveRange:[],atkRange:[],
         banner:{text:'ENEMY PHASE',tone:'enemy'},
         log:['\u26A1 Enemy Phase!',...s.log.slice(0,19)]}
+    }
+    case 'SET_INTRO':{
+      const stage=action.stage
+      let banner=s.banner
+      if(stage==='objective') banner={text:(s.scenario.objective||'DEFEAT ALL ENEMIES'),tone:'gold'}
+      if(stage==='done') banner={text:`ROUND ${String(s.round).padStart(2,'0')} — PLAYER PHASE`,tone:'player'}
+      return{...s,introStage:stage,phaseAnimating:stage!=='done',banner}
     }
     case 'CLEAR_BANNER': return{...s,banner:null}
     case 'ENEMY_STEP':{
@@ -1145,7 +1156,25 @@ function BattleScreen({state,dispatch}){
     return ()=>{ timers.forEach(clearTimeout); queueRunning.current=false }
   },[state.phase,state.enemyQueue,dispatch])
 
+  // ── Battle intro ceremony: advance each stage after its beat (skippable) ──
+  useEffect(()=>{
+    const stage=state.introStage
+    if(!stage||stage==='done') return
+    // Respect reduced motion — jump straight to a playable board.
+    if(stage==='map'&&typeof window!=='undefined'&&window.matchMedia
+       &&window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      dispatch({type:'SET_INTRO',stage:'done'}); return
+    }
+    const dur ={map:1100,heroes:1600,enemies:1200,objective:1000}[stage]
+    const next={map:'heroes',heroes:'enemies',enemies:'objective',objective:'done'}[stage]
+    if(!next) return
+    const t=setTimeout(()=>dispatch({type:'SET_INTRO',stage:next}),dur)
+    return ()=>clearTimeout(t)
+  },[state.introStage,dispatch])
+
   if(!scenario) return null
+  const introStep={map:0,heroes:1,enemies:2,objective:3,done:4}[state.introStage]??4
+  const introActive=introStep<4
   return(
     <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden',background:'var(--bg)'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
@@ -1243,7 +1272,8 @@ function BattleScreen({state,dispatch}){
                 const xZ=x<4?'#0b0a1e':x>9?'#0d0813':'#090818'
                 return(
                   <div key={k} className={`tile ${isWall?'t-wall':isMove?'t-move':canAtk?'t-atk':''}`}
-                    style={{width:TILE,height:TILE,background:isWall?undefined:xZ}}
+                    style={{width:TILE,height:TILE,background:isWall?undefined:xZ,
+                      ...(state.introStage==='map'?{animation:'tilePop .4s ease both',animationDelay:`${(x+y)*26}ms`}:{})}}
                     onClick={()=>{
                       if(state.phaseAnimating) return
                       if(isMove) dispatch({type:'MOVE_HERO',x,y})
@@ -1256,15 +1286,24 @@ function BattleScreen({state,dispatch}){
               }))}
             </div>
             {/* Token overlay layer (absolute, animated) */}
-            {heroes.filter(h=>h.hp>0||dyingIds.has(h.id)).map(h=>{
+            {introStep>=1&&heroes.filter(h=>h.hp>0||dyingIds.has(h.id)).map((h,hi)=>{
               const flashing=hitFlash[h.id]&&(now-hitFlash[h.id]<250)
+              const spawning=state.introStage==='heroes'
               return(
                 <div key={h.id} className={`board-token ${dyingIds.has(h.id)?'dying':''} ${flashing?'flashing':''}`}
                   style={{left:h.x*TILE,top:h.y*TILE,width:TILE,height:TILE,
                     display:'flex',alignItems:'center',justifyContent:'center'}}
                   onClick={()=>!state.phaseAnimating&&h.hp>0&&!h.done&&dispatch({type:'SELECT_HERO',id:h.id})}>
+                  {spawning&&(
+                    <div style={{position:'absolute',top:-13,left:'50%',transform:'translateX(-50%)',
+                      fontSize:'.5rem',fontWeight:800,letterSpacing:'.14em',textTransform:'uppercase',
+                      color:h.cl,whiteSpace:'nowrap',fontFamily:"'Outfit',sans-serif",pointerEvents:'none',
+                      animation:'fadeIn .4s ease both'}}>{h.n}</div>
+                  )}
                   <div className={`token ${selectedHeroId===h.id?'token-sel':''} ${h.done?'token-done':''}`}
-                    style={{borderColor:h.cl,background:'var(--bg2)',cursor:h.hp>0&&!h.done?'pointer':'default'}}>
+                    style={{borderColor:h.cl,background:'var(--bg2)',cursor:h.hp>0&&!h.done?'pointer':'default',
+                      ...(spawning?{animation:`tokenSpawn .5s ease ${hi*140}ms both`,
+                        boxShadow:`0 0 0 3px ${h.cl}55,0 0 16px ${h.cl}44`}:{})}}>
                     <img src={h.img} alt="" onError={e=>e.target.style.display='none'}/>
                   </div>
                   {h.hp<h.mhp&&h.hp>0&&(
@@ -1276,9 +1315,10 @@ function BattleScreen({state,dispatch}){
                 </div>
               )
             })}
-            {enemies.filter(e=>e.hp>0||dyingIds.has(e.id)).map(e=>{
+            {introStep>=2&&enemies.filter(e=>e.hp>0||dyingIds.has(e.id)).map((e,ei)=>{
               const canAtk=atkSet.has(e.id)
               const flashing=hitFlash[e.id]&&(now-hitFlash[e.id]<250)
+              const warping=state.introStage==='enemies'
               return(
                 <div key={e.id} className={`board-token ${dyingIds.has(e.id)?'dying':''} ${flashing?'flashing':''}`}
                   style={{left:e.x*TILE,top:e.y*TILE,width:TILE,height:TILE,
@@ -1286,7 +1326,9 @@ function BattleScreen({state,dispatch}){
                   onClick={()=>!state.phaseAnimating&&canAtk&&dispatch({type:'ATTACK',id:e.id})}>
                   <div className={`token ${canAtk?'token-sel':''}`}
                     style={{borderColor:'#f87171',background:'#200a0a',fontSize:'.85rem',
-                      cursor:canAtk?'pointer':'default'}}>
+                      cursor:canAtk?'pointer':'default',
+                      ...(warping?{animation:`warpIn .55s ease ${ei*220}ms both`,
+                        boxShadow:'0 0 14px rgba(248,113,113,.6)'}:{})}}>
                     {e.ic}
                   </div>
                   {e.hp<e.mhp&&e.hp>0&&(
@@ -1381,19 +1423,31 @@ function BattleScreen({state,dispatch}){
         </div>
       </div>
       {/* Phase transition banner */}
-      {state.banner&&(
-        <div className="phase-banner">
-          <div className="rule" style={{background:`linear-gradient(to right,transparent,${state.banner.tone==='enemy'?'rgba(248,113,113,.4)':'rgba(45,212,191,.4)'})`}}/>
-          <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,
-            fontSize:'1.05rem',letterSpacing:'.28em',textTransform:'uppercase',
-            color:state.banner.tone==='enemy'?'#f87171':'#2dd4bf',
-            textShadow:`0 0 30px ${state.banner.tone==='enemy'?'rgba(248,113,113,.5)':'rgba(45,212,191,.5)'}`,
-            whiteSpace:'nowrap'}}>
-            {state.banner.text}
-          </div>
-          <div className="rule" style={{background:`linear-gradient(to left,transparent,${state.banner.tone==='enemy'?'rgba(248,113,113,.4)':'rgba(45,212,191,.4)'})`}}/>
+      {/* Intro ceremony: full-screen catcher locks input and skips on click */}
+      {introActive&&(
+        <div onClick={()=>dispatch({type:'SET_INTRO',stage:'done'})}
+          style={{position:'fixed',inset:0,zIndex:45,cursor:'pointer',background:'transparent'}}>
+          <div style={{position:'absolute',bottom:22,left:'50%',transform:'translateX(-50%)',
+            fontSize:'.54rem',fontWeight:600,letterSpacing:'.28em',textTransform:'uppercase',
+            color:'rgba(255,255,255,.28)',fontFamily:"'Outfit',sans-serif",
+            animation:'pulse 1.8s ease-in-out infinite'}}>tap to skip</div>
         </div>
       )}
+      {state.banner&&(()=>{
+        const tc={enemy:['#f87171','rgba(248,113,113,'],gold:['#fbbf24','rgba(251,191,36,'],player:['#2dd4bf','rgba(45,212,191,']}[state.banner.tone]||['#2dd4bf','rgba(45,212,191,']
+        const[col,rgb]=tc
+        return(
+        <div className="phase-banner">
+          <div className="rule" style={{background:`linear-gradient(to right,transparent,${rgb}.4))`}}/>
+          <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,
+            fontSize:'1.05rem',letterSpacing:'.28em',textTransform:'uppercase',
+            color:col,textShadow:`0 0 30px ${rgb}.5)`,whiteSpace:'nowrap'}}>
+            {state.banner.text}
+          </div>
+          <div className="rule" style={{background:`linear-gradient(to left,transparent,${rgb}.4))`}}/>
+        </div>
+        )
+      })()}
       {/* Card play flourish */}
       {playingCard&&(
         <div className="card-flourish" style={{

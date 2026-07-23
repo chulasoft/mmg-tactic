@@ -45,6 +45,7 @@ symbol name if they have drifted. The full design intent for each phase is in
 | EXP & progression (persistent slice) | `state.progress`, `awardChapter`, `expToLevel` | +10 EXP/survivor/chapter; battle level derived from EXP (admin override wins) |
 | Save/Load seam (functions only) | `serializeProgress` / `hydrateProgress` | boundary ready; no UI/CSV yet (Phase 5) |
 | Chapter 1 complete loop | `PostBattle`, `SCENARIOS[0].outro/defeat` | victory → EXP tally → outro narration → Title; defeat → line → Retry |
+| Battle intro ceremony | `state.introStage`, `SET_INTRO`, intro effect in `BattleScreen` | map reveal wave → hero spawn (name plates) → enemy warp-in → objective + round-1 banners; click-to-skip; reduced-motion jumps to playable |
 | Knowledge Base | `KnowledgeScreen` | Heroes / Monsters / Mechanics tabs |
 | Admin / dev tools | `AdminScreen` | quick-nav, jump-to-battle, per-hero level select, god mode, live state inspector, reset |
 | Reduced-motion support | `CSS` media queries | floaters, tokens, flourish, banners |
@@ -72,7 +73,6 @@ prioritised order is in [`TODO.md`](TODO.md).
 
 | Phase | Feature | Notes |
 |---|---|---|
-| 2 | Battle intro sequence | map reveal → hero spawn → enemy warp-in → objective banner. No `introStage` state yet. |
 | 3 | Mid-battle event system | `events[]` per scenario (`roundStart`, `enemiesRemaining`, `heroHpBelowPct`, …). Not present. |
 | 3 | Post-battle victory flow | banner → EXP tally count-up → level-up → card-unlock ceremony → outro narrator → save prompt. |
 | 3 | EXP & leveling / progression | `heroExp`, `expToLevel`, `chaptersCleared`. Not present; battles use `partyLevels` admin override or Lv 1. |
