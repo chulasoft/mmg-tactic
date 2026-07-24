@@ -16,23 +16,21 @@ Status keys: **P0** = do next, **P1** = high, **P2** = medium, **P3** = later.
 
 ---
 
-## P0 — Phase 2: Battle intro sequence
+## ✅ Phase 2 — Battle intro sequence (shipped)
 
-Entering a chapter should feel like a moment. See plan §3, and
-[`FEATURE.md`](FEATURE.md) → Not started.
+- [x] `introStage:'map'|'heroes'|'enemies'|'objective'|'done'` in state,
+      advanced by a self-scheduling `BattleScreen` `useEffect` (each stage times
+      the next); `SET_INTRO` reducer case.
+- [x] Map reveal — tiles pop in as a diagonal wave (`animationDelay:(x+y)*26ms`).
+- [x] Hero spawn — tokens scale in (`tokenSpawn`, staggered) with a colored ring
+      + name plate.
+- [x] Enemy warp-in — `warpIn` keyframe + red shimmer, visually distinct.
+- [x] Objective banner (gold) + Round-01 banner (teal), then control unlocks.
+- [x] Full-screen catcher locks input and skips to `done` on click; reduced-motion
+      jumps straight to a playable board. Retry / admin-jump replay the full intro.
 
-- [ ] Add `introStage:'map'|'heroes'|'enemies'|'objective'|'done'` to state,
-      progressed by chained timeouts in a `BattleScreen` `useEffect`.
-- [ ] Map reveal — tiles fade in as a diagonal wave (`animation-delay:(x+y)*28ms`).
-- [ ] Hero spawn — tokens scale in one-by-one with a teal ring + name plate.
-- [ ] Enemy warp-in — visually distinct (light-slit expand + red shimmer),
-      lore-consistent ("they simply arrive").
-- [ ] Objective banner + Round 1 banner, then unlock control.
-- [ ] Any click skips cleanly to `done`. Admin jump replays intro (full or ½-speed;
-      document the choice).
-
-Reuse the existing token-overlay layer and banner infra
-([`ARCHITECTURE.md`](ARCHITECTURE.md) §5).
+Next polish (optional): 50%-speed variant for admin re-jumps; per-hero spawn SFX
+once audio lands.
 
 ---
 
@@ -49,16 +47,20 @@ The largest phase; sub-split it. See plan §4. Also authors Chapter-1 content
       into `pendingEvents`; replay sequentially; mark `firedEvents`.
 - [ ] Ship Chapter 1 with the three example events wired.
 
-**3b — Post-battle victory flow**
-- [ ] Replace the instant win modal with: victory banner → EXP tally count-up →
-      level-up + stat deltas → card-unlock ceremony → outro narrator → save prompt.
-- [ ] Defeat flow: dark banner → one fatalistic line → Retry.
+**3b — Post-battle victory flow** — ✅ base loop shipped
+- [x] Replaced the instant win modal → `PostBattle`: EXP tally → outro narration →
+      Title (`SCENARIOS[0].outro`).
+- [x] Defeat flow: fatalistic line (`SCENARIOS[].defeat`) → Retry.
+- [ ] Still TODO: victory banner sweep, animated EXP-bar/count-up, card-unlock
+      reveal, save prompt (folds into Phase 5).
 
-**3c — EXP & leveling**
-- [ ] `progress` slice: `heroExp:{}`, `chaptersCleared:[]`.
-- [ ] `expToLevel(exp)` (isolated), `+10` EXP per surviving hero per chapter.
-- [ ] Battle start uses computed level from `heroExp`; admin `partyLevels` override
-      still wins for testing. See [`DATABASE.md`](DATABASE.md) §2.
+**3c — EXP & leveling** — ✅ core shipped
+- [x] `progress` slice: `heroExp:{}`, `chaptersCleared:[]` (in `INIT`).
+- [x] `expToLevel(exp)` isolated in `core/engine.mjs`; `+10`/survivor via
+      `awardChapter`; covered by `tests/engine.test.mjs`.
+- [x] Battle start derives level from `heroExp`; admin `partyLevels` override wins.
+- [ ] Full persistent/transient nesting (`progress/ui/battle/fx`) — light seam is
+      in place (`state.progress` + `serialize/hydrateProgress`); nest fully later.
 
 ---
 

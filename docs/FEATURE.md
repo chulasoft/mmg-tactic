@@ -41,7 +41,13 @@ symbol name if they have drifted. The full design intent for each phase is in
 | Death dissolve | `.board-token.dying` | fades/scales out instead of popping |
 | Card-play flourish | `playingCard`, `.card-flourish` | center-screen card reveal |
 | Phase banners | `banner`, `.phase-banner`, `CLEAR_BANNER` | sweep on phase change |
-| Win / Lose result | `result` in state | basic overlay (see stub note below) |
+| Pure engine module + tests | `src/core/engine.mjs`, `tests/engine.test.mjs` | run `node --test`; build inlines it |
+| EXP & progression (persistent slice) | `state.progress`, `awardChapter`, `expToLevel` | +10 EXP/survivor/chapter; battle level derived from EXP (admin override wins) |
+| Save/Load seam (functions only) | `serializeProgress` / `hydrateProgress` | boundary ready; no UI/CSV yet (Phase 5) |
+| Chapter 1 complete loop | `PostBattle`, `SCENARIOS[0].outro/defeat` | victory → EXP tally → outro narration → Title; defeat → line → Retry |
+| Battle intro ceremony | `state.introStage`, `SET_INTRO`, intro effect in `BattleScreen` | map reveal wave → hero spawn (name plates) → enemy warp-in → objective + round-1 banners; click-to-skip; reduced-motion jumps to playable |
+| Battle UX — board-centred layout | `BattleScreen` | sidebars removed; top status strip (party + enemy chips), centred board, bottom card-hand bar, log toast. Everything clusters around the board. |
+| Token command popup | `BattleScreen` local `menu`/`setMenu` state | click a hero token → popup at the token (stats + status + End Turn). Local UI state only — never touches the reducer/game state. |
 | Knowledge Base | `KnowledgeScreen` | Heroes / Monsters / Mechanics tabs |
 | Admin / dev tools | `AdminScreen` | quick-nav, jump-to-battle, per-hero level select, god mode, live state inspector, reset |
 | Reduced-motion support | `CSS` media queries | floaters, tokens, flourish, banners |
@@ -56,9 +62,9 @@ This is **Phase 1 (Game Feel) complete** per the master plan.
 
 | Feature | Where | Gap |
 |---|---|---|
-| Win/Lose flow | `result` overlay | instant modal only — no victory sweep, EXP tally, outro, or defeat line (Phase 3) |
-| Scenario stories | `SCENARIOS[].story` | present as empty arrays `[]`; no per-scenario intro/outro/events wired |
-| Second chapter | `SCENARIOS[1]` (`c2`) | board + enemies defined, but no deck-select, events, or narrative around it |
+| Victory ceremony | `PostBattle` | EXP tally + outro shipped, but no animated bar fill / card-unlock reveal / save prompt yet (Phase 3/5) |
+| Mid-battle events | `SCENARIOS[].events` | schema field exists (empty); evaluator + runner not built (Phase 3) |
+| Second chapter | `SCENARIOS[1]` (`c2`) | board/enemies + empty `outro` defined; no deck-select, events, or narrative yet |
 
 ---
 
@@ -69,7 +75,6 @@ prioritised order is in [`TODO.md`](TODO.md).
 
 | Phase | Feature | Notes |
 |---|---|---|
-| 2 | Battle intro sequence | map reveal → hero spawn → enemy warp-in → objective banner. No `introStage` state yet. |
 | 3 | Mid-battle event system | `events[]` per scenario (`roundStart`, `enemiesRemaining`, `heroHpBelowPct`, …). Not present. |
 | 3 | Post-battle victory flow | banner → EXP tally count-up → level-up → card-unlock ceremony → outro narrator → save prompt. |
 | 3 | EXP & leveling / progression | `heroExp`, `expToLevel`, `chaptersCleared`. Not present; battles use `partyLevels` admin override or Lv 1. |

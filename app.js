@@ -202,6 +202,220 @@ const Info = mkIcon([{
   d: 'M12 8h.01'
 }]);
 
+/* inlined: src/core/engine.mjs */
+/**
+ * Pure game engine — no React, no DOM, no timers, no data-table imports.
+ *
+ * Everything here is deterministic and unit-testable with `node --test`
+ * (see tests/engine.test.mjs). The browser build inlines this file via
+ * src/build.js, which strips the `export ` keywords and concatenates it ahead
+ * of the app source, so these become plain top-level functions in app.js.
+ *
+ * RULE: keep this file pure. It may take heroes/cards/scenarios as ARGUMENTS,
+ * but it must never import or reference the DATA tables or React.
+ */
+
+// ── Stats & leveling ────────────────────────────────────────────────
+function calcStat(base, rate, lv) {
+  return Math.round(base + rate * (lv - 1) / 10);
+}
+function heroStats(h, lv = 1) {
+  return {
+    hp: calcStat(h.hp, h.growth.hp, lv),
+    at: calcStat(h.at, h.growth.at, lv),
+    mv: h.mv + Math.floor(h.growth.mv * (lv - 1) / 10),
+    rg: h.rg + Math.floor(h.growth.rg * (lv - 1) / 10)
+  };
+}
+
+// EXP → level. Simple curve, capped at 30 (master plan §4.3).
+function expToLevel(exp = 0) {
+  return Math.min(30, 1 + Math.floor((exp || 0) / 10));
+}
+
+// EXP awarded to a hero for clearing a chapter (master plan §4.3: +10 each).
+const EXP_PER_CHAPTER = 10;
+
+// ── Progression (persistent slice) ──────────────────────────────────
+// Award chapter-clear EXP to the surviving heroes and mark the chapter done.
+// Pure: takes the `progress` slice + ids, returns a NEW progress + a per-hero
+// award summary (for the victory screen). Never mutates its inputs.
+function awardChapter(progress, chapterId, survivorIds) {
+  const heroExp = {
+    ...progress.heroExp
+  };
+  const award = survivorIds.map(id => {
+    const before = heroExp[id] || 0;
+    const after = before + EXP_PER_CHAPTER;
+    heroExp[id] = after;
+    return {
+      heroId: id,
+      gained: EXP_PER_CHAPTER,
+      fromLv: expToLevel(before),
+      toLv: expToLevel(after)
+    };
+  });
+  const chaptersCleared = progress.chaptersCleared.includes(chapterId) ? progress.chaptersCleared : [...progress.chaptersCleared, chapterId];
+  return {
+    progress: {
+      ...progress,
+      heroExp,
+      chaptersCleared
+    },
+    award
+  };
+}
+
+// ── Save/Load seam (persistent state ⇄ plain data) ──────────────────
+// The single boundary the CSV save/load (Phase 5) will use. Kept intentionally
+// small and flat now; when state grows to a nested `progress`/`ui`/`battle`
+// split, only these two functions change — callers stay the same.
+function serializeProgress(state) {
+  return {
+    version: 1,
+    party: [...(state.party || [])],
+    heroExp: {
+      ...(state.progress?.heroExp || {})
+    },
+    chaptersCleared: [...(state.progress?.chaptersCleared || [])]
+  };
+}
+function hydrateProgress(state, data) {
+  return {
+    ...state,
+    party: Array.isArray(data?.party) ? data.party : state.party,
+    progress: {
+      heroExp: data?.heroExp || {},
+      chaptersCleared: data?.chaptersCleared || []
+    }
+  };
+}
+
+// ── Cards ───────────────────────────────────────────────────────────
+function applyCard(unit, card) {
+  let at = unit.at,
+    mv = unit.mv,
+    rg = unit.rg,
+    hp = unit.hp,
+    mhp = unit.mhp;
+  let extraAtk = 0,
+    extraMv = 0,
+    dr = unit.dr || 0;
+  for (const fx of card.fx || []) {
+    if (fx.t === 'B' && fx.s === 'at') at += fx.v;
+    if (fx.t === 'B' && fx.s === 'mv') mv += fx.v;
+    if (fx.t === 'B' && fx.s === 'rg') rg += fx.v;
+    if (fx.t === 'H') hp = Math.min(mhp, hp + (fx.v === 999 ? mhp : fx.v));
+    if (fx.t === 'D') dr += fx.v;
+    if (fx.t === 'X' && fx.s === 'at') extraAtk += fx.v;
+    if (fx.t === 'X' && fx.s === 'mv') extraMv += fx.v;
+  }
+  return {
+    ...unit,
+    at,
+    mv,
+    rg,
+    hp,
+    dr,
+    atkLeft: 1 + extraAtk,
+    mvLeft: mv,
+    cardPlayed: card.id
+  };
+}
+
+// ── Grid: movement & range ──────────────────────────────────────────
+function bfsMove(unit, all, w, h, walls) {
+  const key = (x, y) => `${x},${y}`;
+  const wall = new Set(walls.map(([x, y]) => key(x, y)));
+  const occ = new Set(all.map(u => key(u.x, u.y)));
+  const visited = new Set([key(unit.x, unit.y)]);
+  const queue = [{
+    x: unit.x,
+    y: unit.y,
+    steps: 0
+  }];
+  const reachable = [];
+  while (queue.length) {
+    const {
+      x,
+      y,
+      steps
+    } = queue.shift();
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const nx = x + dx,
+        ny = y + dy,
+        k = key(nx, ny);
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h || wall.has(k) || visited.has(k)) continue;
+      visited.add(k);
+      if (!occ.has(k)) {
+        if (steps + 1 <= unit.mvLeft) reachable.push({
+          x: nx,
+          y: ny
+        });
+        if (steps + 1 < unit.mvLeft) queue.push({
+          x: nx,
+          y: ny,
+          steps: steps + 1
+        });
+      }
+    }
+  }
+  return reachable;
+}
+function getAttackRange(unit, targets) {
+  return targets.filter(t => {
+    const dist = Math.abs(t.x - unit.x) + Math.abs(t.y - unit.y);
+    return dist > 0 && dist <= unit.rg;
+  });
+}
+
+// ── Enemy AI ────────────────────────────────────────────────────────
+function enemyAI(enemy, heroes, all, w, h, walls) {
+  const alive = heroes.filter(h => h.hp > 0);
+  if (!alive.length) return {
+    movedEnemy: enemy,
+    attackedHero: null,
+    dmg: 0,
+    targetId: null
+  };
+  const target = alive.reduce((a, b) => Math.abs(a.x - enemy.x) + Math.abs(a.y - enemy.y) <= Math.abs(b.x - enemy.x) + Math.abs(b.y - enemy.y) ? a : b);
+  const reachable = bfsMove({
+    ...enemy,
+    mvLeft: enemy.mv
+  }, all, w, h, walls);
+  let moved = {
+    ...enemy
+  };
+  if (reachable.length) {
+    const best = reachable.reduce((a, b) => Math.abs(a.x - target.x) + Math.abs(a.y - target.y) <= Math.abs(b.x - target.x) + Math.abs(b.y - target.y) ? a : b);
+    moved = {
+      ...enemy,
+      x: best.x,
+      y: best.y
+    };
+  }
+  const dist = Math.abs(moved.x - target.x) + Math.abs(moved.y - target.y);
+  if (dist <= moved.rg) {
+    const dmg = Math.max(1, moved.at - (target.dr || 0));
+    const attackedHero = {
+      ...target,
+      hp: Math.max(0, target.hp - dmg)
+    };
+    return {
+      movedEnemy: moved,
+      attackedHero,
+      dmg,
+      targetId: target.id
+    };
+  }
+  return {
+    movedEnemy: moved,
+    attackedHero: null,
+    dmg: 0,
+    targetId: null
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  STYLES
 // ═══════════════════════════════════════════════════════════════════
@@ -1602,6 +1816,11 @@ const SCENARIOS = [{
   id: 'c1',
   title: 'Chapter I — The Burning Hour',
   story: [],
+  objective: 'DEFEAT ALL ENEMIES',
+  events: [],
+  // mid-battle triggers (Phase 3) — schema in docs/DATABASE.md
+  outro: ['The last of them comes apart\nlike smoke deciding it was never there.\n\nThen quiet.\n\nThe fires are already burning lower,\nas if they, too, have lost the thread\nof whatever brought them here.', 'The villagers come out slowly.\n\nThey look at you — at the four who stand with you —\nand then at the bare ground\nwhere something had been standing\na breath ago.\n\nNo one says the word for it.\nThere is no word for it yet.', 'You look at that same patch of ground.\n\nAnd for half a second — no longer —\nyou are certain, the way you are certain of your own name\nwhen you are not trying to remember it,\nthat you have stood exactly here before.\n\nThen it is gone,\nand it is only a street, and only ash.'],
+  defeat: 'The world tilts, and goes white.\n\nAnd somewhere, patient as the tide,\na voice you almost know says it again:\n\n"… once more …"',
   win: 'Defeat all 4 enemies.',
   lose: 'All heroes are defeated.',
   w: 14,
@@ -1641,6 +1860,11 @@ const SCENARIOS = [{
   id: 'c2',
   title: 'Chapter II — The Burning Citadel',
   story: [],
+  objective: 'DEFEAT THE HELL BRUTE',
+  events: [],
+  outro: [],
+  // authored when Chapter 2 content lands
+  defeat: 'Darkness folds back over the citadel,\nand the voice does not even bother to whisper.',
   win: 'Defeat the Hell Brute and all guards.',
   lose: 'All heroes are defeated.',
   w: 14,
@@ -1730,139 +1954,12 @@ const NARR = [{
 // ═══════════════════════════════════════════════════════════════════
 //  GAME ENGINE UTILITIES
 // ═══════════════════════════════════════════════════════════════════
+//  The PURE engine (calcStat, heroStats, expToLevel, applyCard, bfsMove,
+//  getAttackRange, enemyAI) lives in src/core/engine.mjs and is inlined by
+//  src/build.js — those names are available as globals here. Only data-glue
+//  helpers that reference the DATA tables stay in this file.
 function getHeroCards(heroId, level = 1) {
   return (CARDS[heroId] || []).filter(c => c.lv <= level);
-}
-function calcStat(base, rate, lv) {
-  return Math.round(base + rate * (lv - 1) / 10);
-}
-function heroStats(h, lv = 1) {
-  return {
-    hp: calcStat(h.hp, h.growth.hp, lv),
-    at: calcStat(h.at, h.growth.at, lv),
-    mv: h.mv + Math.floor(h.growth.mv * (lv - 1) / 10),
-    rg: h.rg + Math.floor(h.growth.rg * (lv - 1) / 10)
-  };
-}
-function applyCard(unit, card) {
-  let at = unit.at,
-    mv = unit.mv,
-    rg = unit.rg,
-    hp = unit.hp,
-    mhp = unit.mhp;
-  let extraAtk = 0,
-    extraMv = 0,
-    dr = unit.dr || 0;
-  for (const fx of card.fx || []) {
-    if (fx.t === 'B' && fx.s === 'at') at += fx.v;
-    if (fx.t === 'B' && fx.s === 'mv') mv += fx.v;
-    if (fx.t === 'B' && fx.s === 'rg') rg += fx.v;
-    if (fx.t === 'H') hp = Math.min(mhp, hp + (fx.v === 999 ? mhp : fx.v));
-    if (fx.t === 'D') dr += fx.v;
-    if (fx.t === 'X' && fx.s === 'at') extraAtk += fx.v;
-    if (fx.t === 'X' && fx.s === 'mv') extraMv += fx.v;
-  }
-  return {
-    ...unit,
-    at,
-    mv,
-    rg,
-    hp,
-    dr,
-    atkLeft: 1 + extraAtk,
-    mvLeft: mv,
-    cardPlayed: card.id
-  };
-}
-function bfsMove(unit, all, w, h, walls) {
-  const key = (x, y) => `${x},${y}`;
-  const wall = new Set(walls.map(([x, y]) => key(x, y)));
-  const occ = new Set(all.map(u => key(u.x, u.y)));
-  const visited = new Set([key(unit.x, unit.y)]);
-  const queue = [{
-    x: unit.x,
-    y: unit.y,
-    steps: 0
-  }];
-  const reachable = [];
-  while (queue.length) {
-    const {
-      x,
-      y,
-      steps
-    } = queue.shift();
-    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
-      const nx = x + dx,
-        ny = y + dy,
-        k = key(nx, ny);
-      if (nx < 0 || ny < 0 || nx >= w || ny >= h || wall.has(k) || visited.has(k)) continue;
-      visited.add(k);
-      if (!occ.has(k)) {
-        if (steps + 1 <= unit.mvLeft) reachable.push({
-          x: nx,
-          y: ny
-        });
-        if (steps + 1 < unit.mvLeft) queue.push({
-          x: nx,
-          y: ny,
-          steps: steps + 1
-        });
-      }
-    }
-  }
-  return reachable;
-}
-function getAttackRange(unit, targets) {
-  return targets.filter(t => {
-    const dist = Math.abs(t.x - unit.x) + Math.abs(t.y - unit.y);
-    return dist > 0 && dist <= unit.rg;
-  });
-}
-function enemyAI(enemy, heroes, all, w, h, walls) {
-  const alive = heroes.filter(h => h.hp > 0);
-  if (!alive.length) return {
-    movedEnemy: enemy,
-    attackedHero: null,
-    dmg: 0,
-    targetId: null
-  };
-  const target = alive.reduce((a, b) => Math.abs(a.x - enemy.x) + Math.abs(a.y - enemy.y) <= Math.abs(b.x - enemy.x) + Math.abs(b.y - enemy.y) ? a : b);
-  const reachable = bfsMove({
-    ...enemy,
-    mvLeft: enemy.mv
-  }, all, w, h, walls);
-  let moved = {
-    ...enemy
-  };
-  if (reachable.length) {
-    const best = reachable.reduce((a, b) => Math.abs(a.x - target.x) + Math.abs(a.y - target.y) <= Math.abs(b.x - target.x) + Math.abs(b.y - target.y) ? a : b);
-    moved = {
-      ...enemy,
-      x: best.x,
-      y: best.y
-    };
-  }
-  const dist = Math.abs(moved.x - target.x) + Math.abs(moved.y - target.y);
-  let attackedHero = null;
-  if (dist <= moved.rg) {
-    const dmg = Math.max(1, moved.at - (target.dr || 0));
-    attackedHero = {
-      ...target,
-      hp: Math.max(0, target.hp - dmg)
-    };
-    return {
-      movedEnemy: moved,
-      attackedHero,
-      dmg,
-      targetId: target.id
-    };
-  }
-  return {
-    movedEnemy: moved,
-    attackedHero: null,
-    dmg: 0,
-    targetId: null
-  };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1873,6 +1970,12 @@ const INIT = {
   prevScreen: null,
   party: [],
   partyLevels: {},
+  // ── persistent slice (survives battles; the ONLY thing save/load touches;
+  //    see serializeProgress/hydrateProgress in core/engine) ──
+  progress: {
+    heroExp: {},
+    chaptersCleared: []
+  },
   scenario: null,
   heroes: [],
   enemies: [],
@@ -1884,6 +1987,10 @@ const INIT = {
   round: 1,
   log: [],
   result: null,
+  introStage: 'done',
+  // battle-intro ceremony: map→heroes→enemies→objective→done
+  postBattle: null,
+  // {award:[...], outroLines:[...]} transient victory data
   godMode: false,
   narratorSlide: 0,
   kbTab: 'heroes',
@@ -1930,7 +2037,8 @@ function reducer(state, action) {
         const sc = action.scenario;
         const heroUnits = s.party.map((hid, i) => {
           const h = HEROES.find(x => x.id === hid);
-          const lv = s.partyLevels[hid] || 1;
+          // Level from earned EXP; the admin per-hero override wins when set (testing).
+          const lv = s.partyLevels[hid] || expToLevel(s.progress.heroExp[hid] || 0);
           const st = heroStats(h, lv);
           const start = sc.heroStarts[i] || {
             x: 0,
@@ -1981,12 +2089,15 @@ function reducer(state, action) {
           round: 1,
           log: ['Battle start!'],
           result: null,
+          postBattle: null,
+          introStage: 'map',
+          phaseAnimating: true,
+          // play the intro ceremony; input locked until 'done'
           floaters: [],
           hitFlash: {},
           playingCard: null,
           banner: null,
-          enemyQueue: [],
-          phaseAnimating: false
+          enemyQueue: []
         };
       }
     case 'SELECT_HERO':
@@ -2098,16 +2209,37 @@ function reducer(state, action) {
           [e.id]: Date.now()
         };
         const logMsg = `${h.n} hits ${e.n} for ${dmg}!${updE.hp <= 0 ? ' Defeated!' : ''}`;
-        if (won) return {
-          ...s,
-          heroes: newHeroes,
-          enemies: newEnemies,
-          atkRange: [],
-          result: 'win',
-          floaters: newFloaters,
-          hitFlash: newHitFlash,
-          log: [logMsg, ...s.log.slice(0, 19)]
-        };
+        if (won) {
+          const survivors = newHeroes.filter(x => x.hp > 0);
+          const {
+            progress,
+            award
+          } = awardChapter(s.progress, s.scenario.id, survivors.map(x => x.id));
+          const richAward = award.map(a => {
+            const u = survivors.find(x => x.id === a.heroId);
+            return {
+              ...a,
+              n: u.n,
+              cl: u.cl,
+              img: u.img
+            };
+          });
+          return {
+            ...s,
+            heroes: newHeroes,
+            enemies: newEnemies,
+            atkRange: [],
+            result: 'win',
+            progress,
+            postBattle: {
+              award: richAward,
+              outroLines: s.scenario.outro || []
+            },
+            floaters: newFloaters,
+            hitFlash: newHitFlash,
+            log: [logMsg, ...s.log.slice(0, 19)]
+          };
+        }
         const ar = updH.atkLeft > 0 ? getAttackRange(updH, stillAlive) : [];
         return {
           ...s,
@@ -2193,6 +2325,25 @@ function reducer(state, action) {
             tone: 'enemy'
           },
           log: ['\u26A1 Enemy Phase!', ...s.log.slice(0, 19)]
+        };
+      }
+    case 'SET_INTRO':
+      {
+        const stage = action.stage;
+        let banner = s.banner;
+        if (stage === 'objective') banner = {
+          text: s.scenario.objective || 'DEFEAT ALL ENEMIES',
+          tone: 'gold'
+        };
+        if (stage === 'done') banner = {
+          text: `ROUND ${String(s.round).padStart(2, '0')} — PLAYER PHASE`,
+          tone: 'player'
+        };
+        return {
+          ...s,
+          introStage: stage,
+          phaseAnimating: stage !== 'done',
+          banner
         };
       }
     case 'CLEAR_BANNER':
@@ -2853,7 +3004,7 @@ function NarratorScreen({
       fontFamily: "'Fraunces',serif",
       margin: '0 auto'
     }
-  }, cur.sub.split('\\n').map((l, i) => /*#__PURE__*/React.createElement("div", {
+  }, cur.sub.split('\n').map((l, i) => /*#__PURE__*/React.createElement("div", {
     key: i
   }, l))), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3299,6 +3450,283 @@ function NarratorScreen({
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  POST-BATTLE  (victory: EXP tally → outro narration → title · defeat: line → retry)
+// ═══════════════════════════════════════════════════════════════════
+function PostBattle({
+  state,
+  dispatch
+}) {
+  const {
+    result,
+    scenario,
+    postBattle
+  } = state;
+  const win = result === 'win';
+  const outroLines = postBattle && postBattle.outroLines || [];
+  const award = postBattle && postBattle.award || [];
+
+  // ALL HOOKS AT TOP LEVEL (before any conditional return — see §hard rules)
+  const [stage, setStage] = useState('summary'); // 'summary' | 'outro'
+  const [oi, setOi] = useState(0);
+  const outroTxt = stage === 'outro' ? outroLines[oi] || '' : '';
+  const {
+    visibleLines,
+    done,
+    skip
+  } = useTypewriter(outroTxt, 24);
+  const toTitle = () => dispatch({
+    type: 'GO',
+    to: 'title'
+  });
+  const lastOutro = oi >= outroLines.length - 1;
+  const Multi = ({
+    txt
+  }) => /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Fraunces',serif",
+      fontStyle: 'italic',
+      fontSize: 'clamp(.9rem,1.8vw,1.05rem)',
+      lineHeight: 2,
+      color: 'var(--txt)',
+      textAlign: 'left',
+      maxWidth: 520,
+      margin: '0 auto'
+    }
+  }, txt.split('\n').map((l, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      minHeight: '1.4em'
+    }
+  }, l)));
+
+  // ── DEFEAT ──
+  if (!win) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.9)',
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 30
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: 'center',
+        animation: 'fadeIn .6s ease both',
+        maxWidth: 520
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: '.6rem',
+        fontWeight: 700,
+        letterSpacing: '.4em',
+        textTransform: 'uppercase',
+        color: 'rgba(248,113,113,.6)',
+        fontFamily: "'Outfit',sans-serif",
+        marginBottom: 18
+      }
+    }, "Defeat"), /*#__PURE__*/React.createElement(Multi, {
+      txt: scenario.defeat || 'All heroes have fallen.'
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 8,
+        justifyContent: 'center',
+        marginTop: 34
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      cls: "btn-ghost",
+      icon: RotateCcw,
+      onClick: () => dispatch({
+        type: 'START_GAME',
+        scenario
+      })
+    }, "Retry"), /*#__PURE__*/React.createElement(Btn, {
+      cls: "btn-ghost",
+      icon: ArrowLeft,
+      onClick: toTitle
+    }, "Title"))));
+  }
+
+  // ── VICTORY · outro narration ──
+  if (stage === 'outro') {
+    const advance = () => {
+      if (!done) {
+        skip();
+        return;
+      }
+      if (!lastOutro) {
+        setOi(oi + 1);
+      } else {
+        toTitle();
+      }
+    };
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'fixed',
+        inset: 0,
+        background: 'linear-gradient(135deg,#0a0612,#120818,#0a0612)',
+        zIndex: 50,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 40,
+        cursor: 'pointer'
+      },
+      onClick: advance
+    }, /*#__PURE__*/React.createElement(Multi, {
+      txt: visibleLines.map(l => l.text).join('\n')
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 34,
+        fontSize: '.54rem',
+        fontWeight: 600,
+        letterSpacing: '.28em',
+        textTransform: 'uppercase',
+        color: 'rgba(255,255,255,.18)',
+        fontFamily: "'Outfit',sans-serif",
+        animation: 'pulse 1.8s ease-in-out infinite'
+      }
+    }, done ? lastOutro ? 'tap to close' : 'tap to continue' : 'tap to skip'));
+  }
+
+  // ── VICTORY · EXP tally ──
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0,0,0,.85)',
+      zIndex: 50,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "panel",
+    style: {
+      padding: 30,
+      maxWidth: 420,
+      width: '100%',
+      animation: 'fadeIn .4s ease both'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: 'center',
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: '.6rem',
+      fontWeight: 700,
+      letterSpacing: '.4em',
+      textTransform: 'uppercase',
+      color: 'rgba(251,191,36,.6)',
+      fontFamily: "'Outfit',sans-serif",
+      marginBottom: 8
+    }
+  }, "Victory"), /*#__PURE__*/React.createElement("div", {
+    className: "glow-gold",
+    style: {
+      fontFamily: "'Fraunces',serif",
+      fontStyle: 'italic',
+      fontWeight: 700,
+      fontSize: '1.8rem',
+      background: 'linear-gradient(135deg,#fef3c7,#fbbf24,#d97706)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent'
+    }
+  }, "The Burning Hour")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6,
+      marginBottom: 22
+    }
+  }, award.map(a => /*#__PURE__*/React.createElement("div", {
+    key: a.heroId,
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      padding: '7px 10px',
+      borderRadius: 8,
+      background: 'rgba(255,255,255,.02)',
+      border: '1px solid var(--border)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 28,
+      height: 28,
+      borderRadius: '50%',
+      overflow: 'hidden',
+      border: `2px solid ${a.cl}55`,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: a.img,
+    alt: "",
+    style: {
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+      objectPosition: '20% 10%'
+    },
+    onError: e => e.target.style.display = 'none'
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: '.78rem',
+      fontWeight: 600,
+      color: a.cl,
+      flex: 1
+    }
+  }, a.n), a.toLv > a.fromLv && /*#__PURE__*/React.createElement("span", {
+    className: "chip chip-u",
+    style: {
+      fontSize: '.56rem'
+    }
+  }, "Lv ", a.fromLv, " → ", a.toLv), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "'Fraunces',serif",
+      fontStyle: 'italic',
+      fontWeight: 700,
+      color: 'var(--green)',
+      fontSize: '.85rem',
+      fontVariantNumeric: 'tabular-nums'
+    }
+  }, "+", a.gained, " EXP"))), !award.length && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: '.72rem',
+      color: 'var(--txt3)',
+      textAlign: 'center',
+      padding: '6px 0'
+    }
+  }, "No survivors to reward.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'center'
+    }
+  }, outroLines.length > 0 ? /*#__PURE__*/React.createElement(Btn, {
+    cls: "btn-gold",
+    lg: true,
+    icon: ChevronRight,
+    onClick: () => {
+      setOi(0);
+      setStage('outro');
+    }
+  }, "Continue") : /*#__PURE__*/React.createElement(Btn, {
+    cls: "btn-gold",
+    lg: true,
+    icon: ArrowLeft,
+    onClick: toTitle
+  }, "Return to Title"))));
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  BATTLE SCREEN
 // ═══════════════════════════════════════════════════════════════════
 function BattleScreen({
@@ -3322,13 +3750,14 @@ function BattleScreen({
     playingCard
   } = state;
   const selHero = heroes.find(h => h.id === selectedHeroId);
-  const TILE = 38;
+  const TILE = 48;
   const moveSet = useMemo(() => new Set(moveRange.map(t => `${t.x},${t.y}`)), [moveRange]);
   const atkSet = useMemo(() => new Set(atkRange.map(e => e.id)), [atkRange]);
   const wallSet = useMemo(() => new Set((scenario?.walls || []).map(([x, y]) => `${x},${y}`)), [scenario]);
 
   // ── Game-feel: ticking clock for hit-flash expiry ──
   const [now, setNow] = useState(Date.now());
+  const [menu, setMenu] = useState(null); // token popup: heroId | null (local UI only)
   useEffect(() => {
     const anyFlash = Object.keys(hitFlash || {}).length > 0;
     if (!anyFlash) return;
@@ -3442,7 +3871,53 @@ function BattleScreen({
       queueRunning.current = false;
     };
   }, [state.phase, state.enemyQueue, dispatch]);
+
+  // ── Battle intro ceremony: advance each stage after its beat (skippable) ──
+  useEffect(() => {
+    const stage = state.introStage;
+    if (!stage || stage === 'done') return;
+    // Respect reduced motion — jump straight to a playable board.
+    if (stage === 'map' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      dispatch({
+        type: 'SET_INTRO',
+        stage: 'done'
+      });
+      return;
+    }
+    const dur = {
+      map: 1100,
+      heroes: 1600,
+      enemies: 1200,
+      objective: 1000
+    }[stage];
+    const next = {
+      map: 'heroes',
+      heroes: 'enemies',
+      enemies: 'objective',
+      objective: 'done'
+    }[stage];
+    if (!next) return;
+    const t = setTimeout(() => dispatch({
+      type: 'SET_INTRO',
+      stage: next
+    }), dur);
+    return () => clearTimeout(t);
+  }, [state.introStage, dispatch]);
+
+  // Close the token popup when it can no longer act on it
+  useEffect(() => {
+    if (phase !== 'player' || result || state.introStage !== 'done') setMenu(null);
+  }, [phase, result, state.introStage]);
   if (!scenario) return null;
+  const introStep = {
+    map: 0,
+    heroes: 1,
+    enemies: 2,
+    objective: 3,
+    done: 4
+  }[state.introStage] ?? 4;
+  const introActive = introStep < 4;
+  const menuHero = menu && heroes.find(h => h.id === menu && h.hp > 0) || null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -3496,6 +3971,14 @@ function BattleScreen({
   }, "◆ ", phase === 'player' ? 'PLAYER PHASE' : 'ENEMY PHASE')), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+      justifyContent: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
       gap: 5
     }
   }, heroes.map(h => /*#__PURE__*/React.createElement("div", {
@@ -3545,6 +4028,41 @@ function BattleScreen({
     cl: h.cl
   })))))), /*#__PURE__*/React.createElement("div", {
     style: {
+      width: 1,
+      height: 22,
+      background: 'var(--border)'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 4
+    }
+  }, enemies.filter(e => e.hp > 0).map(e => /*#__PURE__*/React.createElement("div", {
+    key: e.id,
+    title: e.n,
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '3px 6px',
+      borderRadius: 7,
+      background: 'rgba(248,113,113,.06)',
+      border: '1px solid rgba(248,113,113,.15)'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: '.72rem'
+    }
+  }, e.ic), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 28
+    }
+  }, /*#__PURE__*/React.createElement(HpBar, {
+    hp: e.hp,
+    mhp: e.mhp,
+    cl: "#f87171"
+  })))))), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: 'flex',
       gap: 6
     }
@@ -3569,150 +4087,20 @@ function BattleScreen({
       flex: 1,
       minHeight: 0,
       display: 'flex',
+      flexDirection: 'column',
       overflow: 'hidden'
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: 172,
-      flexShrink: 0,
-      borderRight: '1px solid var(--border)',
-      overflowY: 'auto',
-      padding: 8,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 5
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.58rem',
-      fontWeight: 700,
-      letterSpacing: '.1em',
-      color: 'var(--txt3)',
-      marginBottom: 2,
-      textTransform: 'uppercase'
-    }
-  }, "Party"), heroes.map(h => /*#__PURE__*/React.createElement("div", {
-    key: h.id,
-    style: {
-      borderRadius: 7,
-      padding: 7,
-      cursor: h.hp > 0 && !h.done ? 'pointer' : 'default',
-      background: selectedHeroId === h.id ? `${h.cl}11` : 'rgba(255,255,255,.02)',
-      border: `1px solid ${selectedHeroId === h.id ? h.cl + '44' : 'transparent'}`,
-      opacity: h.hp <= 0 ? .35 : h.done ? .55 : 1,
-      transition: 'all .15s'
-    },
-    onClick: () => !state.phaseAnimating && h.hp > 0 && !h.done && dispatch({
-      type: 'SELECT_HERO',
-      id: h.id
-    })
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 5,
-      marginBottom: 4
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: 24,
-      height: 24,
-      borderRadius: '50%',
-      overflow: 'hidden',
-      border: `2px solid ${h.cl}55`,
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("img", {
-    src: h.img,
-    alt: "",
-    style: {
-      width: '100%',
-      height: '100%',
-      objectFit: 'cover',
-      objectPosition: '20% 10%'
-    },
-    onError: e => e.target.style.display = 'none'
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.7rem',
-      fontWeight: 700,
-      color: h.cl,
-      whiteSpace: 'nowrap',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis'
-    }
-  }, h.n), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.6rem',
-      color: 'var(--txt3)'
-    }
-  }, h.hp, "/", h.mhp, " HP")), h.done && /*#__PURE__*/React.createElement("span", {
-    style: {
-      marginLeft: 'auto',
-      fontSize: '.58rem',
-      color: 'var(--txt3)'
-    }
-  }, "✓"), h.hp <= 0 && /*#__PURE__*/React.createElement(Skull, {
-    size: 11,
-    color: "#f87171",
-    style: {
-      marginLeft: 'auto'
-    }
-  })), /*#__PURE__*/React.createElement(HpBar, {
-    hp: h.hp,
-    mhp: h.mhp,
-    cl: h.cl
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.58rem',
-      fontWeight: 700,
-      letterSpacing: '.1em',
-      color: 'var(--txt3)',
-      marginTop: 6,
-      textTransform: 'uppercase'
-    }
-  }, "Enemies"), enemies.filter(e => e.hp > 0).map(e => /*#__PURE__*/React.createElement("div", {
-    key: e.id,
-    style: {
-      padding: '5px 7px',
-      borderRadius: 6,
-      background: 'rgba(248,113,113,.05)',
-      border: '1px solid rgba(248,113,113,.12)'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 4,
-      marginBottom: 3
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: '.78rem'
-    }
-  }, e.ic), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: '.68rem',
-      fontWeight: 600,
-      color: 'var(--txt2)'
-    }
-  }, e.n)), /*#__PURE__*/React.createElement(HpBar, {
-    hp: e.hp,
-    mhp: e.mhp,
-    cl: "#f87171"
-  })))), /*#__PURE__*/React.createElement("div", {
-    style: {
       flex: 1,
       minWidth: 0,
+      minHeight: 0,
+      position: 'relative',
       overflow: 'auto',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: 8,
+      padding: 14,
       background: 'var(--bg)'
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -3747,7 +4135,11 @@ function BattleScreen({
       style: {
         width: TILE,
         height: TILE,
-        background: isWall ? undefined : xZ
+        background: isWall ? undefined : xZ,
+        ...(state.introStage === 'map' ? {
+          animation: 'tilePop .4s ease both',
+          animationDelay: `${(x + y) * 26}ms`
+        } : {})
       },
       onClick: () => {
         if (state.phaseAnimating) return;
@@ -3769,8 +4161,9 @@ function BattleScreen({
         opacity: .4
       }
     }, "🧱"));
-  }))), heroes.filter(h => h.hp > 0 || dyingIds.has(h.id)).map(h => {
+  }))), introStep >= 1 && heroes.filter(h => h.hp > 0 || dyingIds.has(h.id)).map((h, hi) => {
     const flashing = hitFlash[h.id] && now - hitFlash[h.id] < 250;
+    const spawning = state.introStage === 'heroes';
     return /*#__PURE__*/React.createElement("div", {
       key: h.id,
       className: `board-token ${dyingIds.has(h.id) ? 'dying' : ''} ${flashing ? 'flashing' : ''}`,
@@ -3783,16 +4176,40 @@ function BattleScreen({
         alignItems: 'center',
         justifyContent: 'center'
       },
-      onClick: () => !state.phaseAnimating && h.hp > 0 && !h.done && dispatch({
-        type: 'SELECT_HERO',
-        id: h.id
-      })
-    }, /*#__PURE__*/React.createElement("div", {
+      onClick: () => {
+        if (state.phaseAnimating || h.hp <= 0 || h.done) return;
+        dispatch({
+          type: 'SELECT_HERO',
+          id: h.id
+        });
+        setMenu(h.id);
+      }
+    }, spawning && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'absolute',
+        top: -13,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        fontSize: '.5rem',
+        fontWeight: 800,
+        letterSpacing: '.14em',
+        textTransform: 'uppercase',
+        color: h.cl,
+        whiteSpace: 'nowrap',
+        fontFamily: "'Outfit',sans-serif",
+        pointerEvents: 'none',
+        animation: 'fadeIn .4s ease both'
+      }
+    }, h.n), /*#__PURE__*/React.createElement("div", {
       className: `token ${selectedHeroId === h.id ? 'token-sel' : ''} ${h.done ? 'token-done' : ''}`,
       style: {
         borderColor: h.cl,
         background: 'var(--bg2)',
-        cursor: h.hp > 0 && !h.done ? 'pointer' : 'default'
+        cursor: h.hp > 0 && !h.done ? 'pointer' : 'default',
+        ...(spawning ? {
+          animation: `tokenSpawn .5s ease ${hi * 140}ms both`,
+          boxShadow: `0 0 0 3px ${h.cl}55,0 0 16px ${h.cl}44`
+        } : {})
       }
     }, /*#__PURE__*/React.createElement("img", {
       src: h.img,
@@ -3812,9 +4229,10 @@ function BattleScreen({
       mhp: h.mhp,
       cl: h.cl
     })));
-  }), enemies.filter(e => e.hp > 0 || dyingIds.has(e.id)).map(e => {
+  }), introStep >= 2 && enemies.filter(e => e.hp > 0 || dyingIds.has(e.id)).map((e, ei) => {
     const canAtk = atkSet.has(e.id);
     const flashing = hitFlash[e.id] && now - hitFlash[e.id] < 250;
+    const warping = state.introStage === 'enemies';
     return /*#__PURE__*/React.createElement("div", {
       key: e.id,
       className: `board-token ${dyingIds.has(e.id) ? 'dying' : ''} ${flashing ? 'flashing' : ''}`,
@@ -3837,7 +4255,11 @@ function BattleScreen({
         borderColor: '#f87171',
         background: '#200a0a',
         fontSize: '.85rem',
-        cursor: canAtk ? 'pointer' : 'default'
+        cursor: canAtk ? 'pointer' : 'default',
+        ...(warping ? {
+          animation: `warpIn .55s ease ${ei * 220}ms both`,
+          boxShadow: '0 0 14px rgba(248,113,113,.6)'
+        } : {})
       }
     }, e.ic), e.hp < e.mhp && e.hp > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
@@ -3863,38 +4285,147 @@ function BattleScreen({
       fontSize: f.big ? '1.05rem' : '.85rem',
       color: f.color
     }
-  }, f.text)))), /*#__PURE__*/React.createElement("div", {
+  }, f.text)), menuHero && (() => {
+    const flip = menuHero.x >= scenario.w - 4;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'absolute',
+        zIndex: 60,
+        width: 160,
+        left: flip ? menuHero.x * TILE - 6 : menuHero.x * TILE + TILE + 6,
+        top: Math.max(0, menuHero.y * TILE - 6),
+        transform: flip ? 'translateX(-100%)' : 'none',
+        padding: 10,
+        borderRadius: 10,
+        background: 'linear-gradient(160deg,#1a1640,#12102e)',
+        border: `1px solid ${menuHero.cl}55`,
+        boxShadow: '0 12px 40px rgba(0,0,0,.6)',
+        animation: 'fadeIn .15s ease both'
+      },
+      onClick: e => e.stopPropagation()
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        marginBottom: 7
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 26,
+        height: 26,
+        borderRadius: '50%',
+        overflow: 'hidden',
+        border: `2px solid ${menuHero.cl}`,
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement("img", {
+      src: menuHero.img,
+      alt: "",
+      style: {
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        objectPosition: '20% 10%'
+      },
+      onError: e => e.target.style.display = 'none'
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        color: menuHero.cl,
+        fontSize: '.74rem',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      }
+    }, menuHero.n), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: '.56rem',
+        color: 'var(--txt3)'
+      }
+    }, menuHero.hp, "/", menuHero.mhp, " HP")), /*#__PURE__*/React.createElement("span", {
+      onClick: () => setMenu(null),
+      style: {
+        cursor: 'pointer',
+        color: 'var(--txt3)',
+        fontSize: '.9rem',
+        lineHeight: 1,
+        padding: '0 2px'
+      }
+    }, "×")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: '.6rem',
+        color: 'var(--txt2)',
+        lineHeight: 1.5,
+        marginBottom: 8,
+        minHeight: '2.4em'
+      }
+    }, menuHero.done ? 'This hero has already acted.' : !menuHero.cardPlayed ? 'Play a card below, then move or attack.' : menuHero.atkLeft > 0 ? 'Click a teal tile to move · a red enemy to attack.' : 'Move to a teal tile, then end the turn.'), /*#__PURE__*/React.createElement(Btn, {
+      cls: "btn-ghost",
+      sm: true,
+      icon: SkipForward,
+      disabled: state.phaseAnimating || menuHero.done,
+      onClick: () => {
+        dispatch({
+          type: 'END_HERO_TURN'
+        });
+        setMenu(null);
+      }
+    }, "End Turn"));
+  })()), /*#__PURE__*/React.createElement("div", {
     style: {
-      width: 210,
-      flexShrink: 0,
-      borderLeft: '1px solid var(--border)',
+      position: 'absolute',
+      left: 12,
+      bottom: 10,
+      maxWidth: 240,
+      pointerEvents: 'none',
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden'
+      gap: 2
+    }
+  }, log.slice(0, 3).map((l, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      fontSize: '.6rem',
+      color: i === 0 ? 'var(--txt2)' : 'var(--txt3)',
+      opacity: i === 0 ? 1 : .55,
+      textShadow: '0 1px 3px rgba(0,0,0,.85)'
+    }
+  }, l)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flexShrink: 0,
+      borderTop: '1px solid var(--border)',
+      background: 'var(--panel)',
+      padding: '8px 12px',
+      minHeight: 98,
+      display: 'flex',
+      alignItems: 'center'
     }
   }, selHero ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      flexDirection: 'column',
-      height: '100%'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 10,
-      borderBottom: '1px solid var(--border)',
-      flexShrink: 0
+      alignItems: 'center',
+      gap: 12,
+      flex: 1,
+      minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
-      gap: 7,
-      marginBottom: 8
+      gap: 8,
+      flexShrink: 0,
+      width: 150
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: 34,
-      height: 34,
+      width: 38,
+      height: 38,
       borderRadius: '50%',
       overflow: 'hidden',
       border: `2px solid ${selHero.cl}`,
@@ -3910,64 +4441,35 @@ function BattleScreen({
       objectPosition: '20% 10%'
     },
     onError: e => e.target.style.display = 'none'
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       fontWeight: 700,
       color: selHero.cl,
-      fontSize: '.82rem'
+      fontSize: '.78rem',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
     }
   }, selHero.n), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: '.62rem',
-      color: 'var(--txt3)'
-    }
-  }, selHero.cardPlayed ? 'Card played' : 'Choose a card'))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4,1fr)',
-      gap: 3
-    }
-  }, [['AT', selHero.at, '#fbbf24'], ['MV', selHero.mv, '#2dd4bf'], ['RG', selHero.rg, '#a78bfa'], ['HP', selHero.hp, '#f87171']].map(([l, v, c]) => /*#__PURE__*/React.createElement("div", {
-    key: l,
-    style: {
-      textAlign: 'center',
-      padding: '3px 2px',
-      background: 'rgba(255,255,255,.03)',
-      borderRadius: 4
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.5rem',
+      display: 'flex',
+      gap: 6,
+      fontSize: '.56rem',
       color: 'var(--txt3)',
-      fontWeight: 700
+      marginTop: 2
     }
-  }, l), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.78rem',
-      fontWeight: 800,
-      color: c
-    }
-  }, v))))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "AT ", selHero.at), /*#__PURE__*/React.createElement("span", null, "MV ", selHero.mv), /*#__PURE__*/React.createElement("span", null, "RG ", selHero.rg)))), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
-      minHeight: 0,
-      overflowY: 'auto',
-      padding: 8
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.58rem',
-      fontWeight: 700,
-      letterSpacing: '.08em',
-      color: 'var(--txt3)',
-      marginBottom: 6,
-      textTransform: 'uppercase'
-    }
-  }, "Ability Cards"), /*#__PURE__*/React.createElement("div", {
-    style: {
+      minWidth: 0,
       display: 'flex',
-      flexDirection: 'column',
-      gap: 4
+      gap: 7,
+      overflowX: 'auto',
+      padding: '2px 0'
     }
   }, (selHero.cards || []).map(card => {
     const isSel = selectedCard === card.id;
@@ -3976,7 +4478,10 @@ function BattleScreen({
       key: card.id,
       className: `acard ${isSel ? 'acard-sel' : ''} ${card.tp === 'U' ? 'acard-ult' : ''}`,
       style: {
-        opacity: played ? .4 : 1,
+        minWidth: 136,
+        maxWidth: 136,
+        flexShrink: 0,
+        opacity: played ? .35 : 1,
         cursor: played ? 'default' : 'pointer'
       },
       onClick: () => !played && dispatch({
@@ -3992,128 +4497,112 @@ function BattleScreen({
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: '.7rem',
+        fontSize: '.68rem',
         fontWeight: 700,
-        color: card.tp === 'U' ? '#fbbf24' : 'var(--txt)'
+        color: card.tp === 'U' ? '#fbbf24' : 'var(--txt)',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
       }
     }, card.n), /*#__PURE__*/React.createElement("span", {
-      className: card.tp === 'U' ? 'chip chip-u' : 'chip chip-n'
+      className: card.tp === 'U' ? 'chip chip-u' : 'chip chip-n',
+      style: {
+        fontSize: '.5rem',
+        flexShrink: 0
+      }
     }, card.tp)), /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: '.61rem',
-        color: 'var(--txt2)'
+        fontSize: '.58rem',
+        color: 'var(--txt2)',
+        lineHeight: 1.35
       }
     }, card.d));
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 8,
-      borderTop: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 5,
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 5
-    }
-  }, /*#__PURE__*/React.createElement(Btn, {
-    cls: "btn-teal",
-    sm: true,
-    icon: Move,
-    disabled: !selHero.cardPlayed,
-    onClick: () => {},
-    style: {
-      flex: 1
-    }
-  }, "Move"), /*#__PURE__*/React.createElement(Btn, {
-    cls: "btn-red",
-    sm: true,
-    icon: Crosshair,
-    disabled: !selHero.cardPlayed || selHero.atkLeft <= 0,
-    onClick: () => {},
-    style: {
-      flex: 1
-    }
-  }, "Atk")), /*#__PURE__*/React.createElement(Btn, {
+  })), /*#__PURE__*/React.createElement(Btn, {
     cls: "btn-ghost",
     sm: true,
     icon: SkipForward,
     disabled: state.phaseAnimating,
-    onClick: () => dispatch({
-      type: 'END_HERO_TURN'
-    })
-  }, "End Turn"))) : /*#__PURE__*/React.createElement("div", {
+    onClick: () => {
+      dispatch({
+        type: 'END_HERO_TURN'
+      });
+      setMenu(null);
+    }
+  }, "End Turn")) : /*#__PURE__*/React.createElement("div", {
     style: {
+      flex: 1,
       display: 'flex',
-      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      height: '100%',
       gap: 8,
-      padding: 16,
-      opacity: .45
+      opacity: .5
     }
   }, /*#__PURE__*/React.createElement(User, {
-    size: 28,
+    size: 18,
     color: "var(--txt3)"
-  }), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: '.72rem',
-      color: 'var(--txt3)',
-      textAlign: 'center'
+      color: 'var(--txt3)'
     }
-  }, "Select a hero to command")), /*#__PURE__*/React.createElement("div", {
+  }, "Click a hero on the board to command — then play a card.")))), introActive && /*#__PURE__*/React.createElement("div", {
+    onClick: () => dispatch({
+      type: 'SET_INTRO',
+      stage: 'done'
+    }),
     style: {
-      height: 110,
-      borderTop: '1px solid var(--border)',
-      overflowY: 'auto',
-      padding: 7,
-      background: 'rgba(0,0,0,.2)',
-      flexShrink: 0
+      position: 'fixed',
+      inset: 0,
+      zIndex: 45,
+      cursor: 'pointer',
+      background: 'transparent'
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: '.56rem',
-      fontWeight: 700,
-      letterSpacing: '.08em',
-      color: 'var(--txt3)',
-      marginBottom: 3,
-      textTransform: 'uppercase'
-    }
-  }, "Log"), log.map((l, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: {
-      fontSize: '.62rem',
-      color: i === 0 ? 'var(--txt2)' : 'var(--txt3)',
-      padding: '1px 0',
-      lineHeight: 1.4
-    }
-  }, l))))), state.banner && /*#__PURE__*/React.createElement("div", {
-    className: "phase-banner"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "rule",
-    style: {
-      background: `linear-gradient(to right,transparent,${state.banner.tone === 'enemy' ? 'rgba(248,113,113,.4)' : 'rgba(45,212,191,.4)'})`
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Outfit',sans-serif",
-      fontWeight: 800,
-      fontSize: '1.05rem',
+      position: 'absolute',
+      bottom: 22,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      fontSize: '.54rem',
+      fontWeight: 600,
       letterSpacing: '.28em',
       textTransform: 'uppercase',
-      color: state.banner.tone === 'enemy' ? '#f87171' : '#2dd4bf',
-      textShadow: `0 0 30px ${state.banner.tone === 'enemy' ? 'rgba(248,113,113,.5)' : 'rgba(45,212,191,.5)'}`,
-      whiteSpace: 'nowrap'
+      color: 'rgba(255,255,255,.28)',
+      fontFamily: "'Outfit',sans-serif",
+      animation: 'pulse 1.8s ease-in-out infinite'
     }
-  }, state.banner.text), /*#__PURE__*/React.createElement("div", {
-    className: "rule",
-    style: {
-      background: `linear-gradient(to left,transparent,${state.banner.tone === 'enemy' ? 'rgba(248,113,113,.4)' : 'rgba(45,212,191,.4)'})`
-    }
-  })), playingCard && /*#__PURE__*/React.createElement("div", {
+  }, "tap to skip")), state.banner && (() => {
+    const tc = {
+      enemy: ['#f87171', 'rgba(248,113,113,'],
+      gold: ['#fbbf24', 'rgba(251,191,36,'],
+      player: ['#2dd4bf', 'rgba(45,212,191,']
+    }[state.banner.tone] || ['#2dd4bf', 'rgba(45,212,191,'];
+    const [col, rgb] = tc;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "phase-banner"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "rule",
+      style: {
+        background: `linear-gradient(to right,transparent,${rgb}.4))`
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Outfit',sans-serif",
+        fontWeight: 800,
+        fontSize: '1.05rem',
+        letterSpacing: '.28em',
+        textTransform: 'uppercase',
+        color: col,
+        textShadow: `0 0 30px ${rgb}.5)`,
+        whiteSpace: 'nowrap'
+      }
+    }, state.banner.text), /*#__PURE__*/React.createElement("div", {
+      className: "rule",
+      style: {
+        background: `linear-gradient(to left,transparent,${rgb}.4))`
+      }
+    }));
+  })(), playingCard && /*#__PURE__*/React.createElement("div", {
     className: "card-flourish",
     style: {
       border: `1px solid ${playingCard.card.tp === 'U' ? 'rgba(251,191,36,.5)' : 'rgba(255,255,255,.15)'}`,
@@ -4144,65 +4633,10 @@ function BattleScreen({
       color: 'var(--txt2)',
       lineHeight: 1.5
     }
-  }, playingCard.card.d)), result && /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: 'fixed',
-      inset: 0,
-      background: 'rgba(0,0,0,.85)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 50
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "panel",
-    style: {
-      padding: 36,
-      textAlign: 'center',
-      maxWidth: 380,
-      animation: 'fadeIn .4s ease both'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '3rem',
-      marginBottom: 10
-    }
-  }, result === 'win' ? '\u2B50' : '\uD83D\uDC80'), /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontFamily: "'Fraunces',serif",
-      fontStyle: 'italic',
-      color: result === 'win' ? 'var(--gold)' : '#f87171',
-      fontSize: '1.5rem',
-      marginBottom: 8
-    }
-  }, result === 'win' ? 'Victory.' : 'Defeat.'), /*#__PURE__*/React.createElement("p", {
-    style: {
-      color: 'var(--txt2)',
-      marginBottom: 22,
-      fontSize: '.82rem',
-      lineHeight: 1.6
-    }
-  }, result === 'win' ? 'All enemies have been defeated.' : 'All heroes have fallen.'), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 8,
-      justifyContent: 'center'
-    }
-  }, /*#__PURE__*/React.createElement(Btn, {
-    cls: "btn-ghost",
-    icon: RotateCcw,
-    onClick: () => dispatch({
-      type: 'START_GAME',
-      scenario
-    })
-  }, "Retry"), /*#__PURE__*/React.createElement(Btn, {
-    cls: "btn-gold",
-    icon: ArrowLeft,
-    onClick: () => dispatch({
-      type: 'GO',
-      to: 'title'
-    })
-  }, "Title")))));
+  }, playingCard.card.d)), result && /*#__PURE__*/React.createElement(PostBattle, {
+    state: state,
+    dispatch: dispatch
+  }));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -5022,7 +5456,7 @@ function AdminScreen({
       overflowY: 'auto',
       lineHeight: 1.6
     }
-  }, /*#__PURE__*/React.createElement("div", null, "screen: ", state.screen), /*#__PURE__*/React.createElement("div", null, "party: [", state.party.join(', '), "]"), /*#__PURE__*/React.createElement("div", null, "godMode: ", String(godMode)), /*#__PURE__*/React.createElement("div", null, "round: ", state.round), /*#__PURE__*/React.createElement("div", null, "heroes alive: ", state.heroes.filter(h => h.hp > 0).length), /*#__PURE__*/React.createElement("div", null, "enemies alive: ", state.enemies.filter(e => e.hp > 0).length), /*#__PURE__*/React.createElement("div", null, "result: ", state.result || 'null'))), /*#__PURE__*/React.createElement(Btn, {
+  }, /*#__PURE__*/React.createElement("div", null, "screen: ", state.screen), /*#__PURE__*/React.createElement("div", null, "party: [", state.party.join(', '), "]"), /*#__PURE__*/React.createElement("div", null, "cleared: [", state.progress.chaptersCleared.join(', '), "]"), /*#__PURE__*/React.createElement("div", null, "heroExp: ", Object.entries(state.progress.heroExp).map(([k, v]) => `${k}:${v}`).join(' ') || '—'), /*#__PURE__*/React.createElement("div", null, "godMode: ", String(godMode)), /*#__PURE__*/React.createElement("div", null, "round: ", state.round), /*#__PURE__*/React.createElement("div", null, "heroes alive: ", state.heroes.filter(h => h.hp > 0).length), /*#__PURE__*/React.createElement("div", null, "enemies alive: ", state.enemies.filter(e => e.hp > 0).length), /*#__PURE__*/React.createElement("div", null, "result: ", state.result || 'null'))), /*#__PURE__*/React.createElement(Btn, {
     cls: "btn-red",
     icon: RotateCcw,
     onClick: () => {
