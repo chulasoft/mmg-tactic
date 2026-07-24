@@ -46,6 +46,8 @@ symbol name if they have drifted. The full design intent for each phase is in
 | Save/Load seam (functions only) | `serializeProgress` / `hydrateProgress` | boundary ready; no UI/CSV yet (Phase 5) |
 | Chapter 1 complete loop | `PostBattle`, `SCENARIOS[0].outro/defeat` | victory → EXP tally → outro narration → Title; defeat → line → Retry |
 | Battle intro ceremony | `state.introStage`, `SET_INTRO`, intro effect in `BattleScreen` | map reveal wave → hero spawn (name plates) → enemy warp-in → objective + round-1 banners; click-to-skip; reduced-motion jumps to playable |
+| Battle UX — board-centred layout | `BattleScreen` | sidebars removed; top status strip (party + enemy chips), centred board, bottom card-hand bar, log toast. Everything clusters around the board. |
+| Token command popup | `BattleScreen` local `menu`/`setMenu` state | click a hero token → popup at the token (stats + status + End Turn). Local UI state only — never touches the reducer/game state. |
 | Knowledge Base | `KnowledgeScreen` | Heroes / Monsters / Mechanics tabs |
 | Admin / dev tools | `AdminScreen` | quick-nav, jump-to-battle, per-hero level select, god mode, live state inspector, reset |
 | Reduced-motion support | `CSS` media queries | floaters, tokens, flourish, banners |

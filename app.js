@@ -3750,13 +3750,14 @@ function BattleScreen({
     playingCard
   } = state;
   const selHero = heroes.find(h => h.id === selectedHeroId);
-  const TILE = 38;
+  const TILE = 48;
   const moveSet = useMemo(() => new Set(moveRange.map(t => `${t.x},${t.y}`)), [moveRange]);
   const atkSet = useMemo(() => new Set(atkRange.map(e => e.id)), [atkRange]);
   const wallSet = useMemo(() => new Set((scenario?.walls || []).map(([x, y]) => `${x},${y}`)), [scenario]);
 
   // ── Game-feel: ticking clock for hit-flash expiry ──
   const [now, setNow] = useState(Date.now());
+  const [menu, setMenu] = useState(null); // token popup: heroId | null (local UI only)
   useEffect(() => {
     const anyFlash = Object.keys(hitFlash || {}).length > 0;
     if (!anyFlash) return;
@@ -3902,6 +3903,11 @@ function BattleScreen({
     }), dur);
     return () => clearTimeout(t);
   }, [state.introStage, dispatch]);
+
+  // Close the token popup when it can no longer act on it
+  useEffect(() => {
+    if (phase !== 'player' || result || state.introStage !== 'done') setMenu(null);
+  }, [phase, result, state.introStage]);
   if (!scenario) return null;
   const introStep = {
     map: 0,
@@ -3911,6 +3917,7 @@ function BattleScreen({
     done: 4
   }[state.introStage] ?? 4;
   const introActive = introStep < 4;
+  const menuHero = menu && heroes.find(h => h.id === menu && h.hp > 0) || null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -3964,6 +3971,14 @@ function BattleScreen({
   }, "◆ ", phase === 'player' ? 'PLAYER PHASE' : 'ENEMY PHASE')), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+      justifyContent: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
       gap: 5
     }
   }, heroes.map(h => /*#__PURE__*/React.createElement("div", {
@@ -4013,6 +4028,41 @@ function BattleScreen({
     cl: h.cl
   })))))), /*#__PURE__*/React.createElement("div", {
     style: {
+      width: 1,
+      height: 22,
+      background: 'var(--border)'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 4
+    }
+  }, enemies.filter(e => e.hp > 0).map(e => /*#__PURE__*/React.createElement("div", {
+    key: e.id,
+    title: e.n,
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '3px 6px',
+      borderRadius: 7,
+      background: 'rgba(248,113,113,.06)',
+      border: '1px solid rgba(248,113,113,.15)'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: '.72rem'
+    }
+  }, e.ic), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 28
+    }
+  }, /*#__PURE__*/React.createElement(HpBar, {
+    hp: e.hp,
+    mhp: e.mhp,
+    cl: "#f87171"
+  })))))), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: 'flex',
       gap: 6
     }
@@ -4037,150 +4087,20 @@ function BattleScreen({
       flex: 1,
       minHeight: 0,
       display: 'flex',
+      flexDirection: 'column',
       overflow: 'hidden'
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: 172,
-      flexShrink: 0,
-      borderRight: '1px solid var(--border)',
-      overflowY: 'auto',
-      padding: 8,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 5
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.58rem',
-      fontWeight: 700,
-      letterSpacing: '.1em',
-      color: 'var(--txt3)',
-      marginBottom: 2,
-      textTransform: 'uppercase'
-    }
-  }, "Party"), heroes.map(h => /*#__PURE__*/React.createElement("div", {
-    key: h.id,
-    style: {
-      borderRadius: 7,
-      padding: 7,
-      cursor: h.hp > 0 && !h.done ? 'pointer' : 'default',
-      background: selectedHeroId === h.id ? `${h.cl}11` : 'rgba(255,255,255,.02)',
-      border: `1px solid ${selectedHeroId === h.id ? h.cl + '44' : 'transparent'}`,
-      opacity: h.hp <= 0 ? .35 : h.done ? .55 : 1,
-      transition: 'all .15s'
-    },
-    onClick: () => !state.phaseAnimating && h.hp > 0 && !h.done && dispatch({
-      type: 'SELECT_HERO',
-      id: h.id
-    })
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 5,
-      marginBottom: 4
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: 24,
-      height: 24,
-      borderRadius: '50%',
-      overflow: 'hidden',
-      border: `2px solid ${h.cl}55`,
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("img", {
-    src: h.img,
-    alt: "",
-    style: {
-      width: '100%',
-      height: '100%',
-      objectFit: 'cover',
-      objectPosition: '20% 10%'
-    },
-    onError: e => e.target.style.display = 'none'
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.7rem',
-      fontWeight: 700,
-      color: h.cl,
-      whiteSpace: 'nowrap',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis'
-    }
-  }, h.n), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.6rem',
-      color: 'var(--txt3)'
-    }
-  }, h.hp, "/", h.mhp, " HP")), h.done && /*#__PURE__*/React.createElement("span", {
-    style: {
-      marginLeft: 'auto',
-      fontSize: '.58rem',
-      color: 'var(--txt3)'
-    }
-  }, "✓"), h.hp <= 0 && /*#__PURE__*/React.createElement(Skull, {
-    size: 11,
-    color: "#f87171",
-    style: {
-      marginLeft: 'auto'
-    }
-  })), /*#__PURE__*/React.createElement(HpBar, {
-    hp: h.hp,
-    mhp: h.mhp,
-    cl: h.cl
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.58rem',
-      fontWeight: 700,
-      letterSpacing: '.1em',
-      color: 'var(--txt3)',
-      marginTop: 6,
-      textTransform: 'uppercase'
-    }
-  }, "Enemies"), enemies.filter(e => e.hp > 0).map(e => /*#__PURE__*/React.createElement("div", {
-    key: e.id,
-    style: {
-      padding: '5px 7px',
-      borderRadius: 6,
-      background: 'rgba(248,113,113,.05)',
-      border: '1px solid rgba(248,113,113,.12)'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 4,
-      marginBottom: 3
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: '.78rem'
-    }
-  }, e.ic), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: '.68rem',
-      fontWeight: 600,
-      color: 'var(--txt2)'
-    }
-  }, e.n)), /*#__PURE__*/React.createElement(HpBar, {
-    hp: e.hp,
-    mhp: e.mhp,
-    cl: "#f87171"
-  })))), /*#__PURE__*/React.createElement("div", {
-    style: {
       flex: 1,
       minWidth: 0,
+      minHeight: 0,
+      position: 'relative',
       overflow: 'auto',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: 8,
+      padding: 14,
       background: 'var(--bg)'
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -4256,10 +4176,14 @@ function BattleScreen({
         alignItems: 'center',
         justifyContent: 'center'
       },
-      onClick: () => !state.phaseAnimating && h.hp > 0 && !h.done && dispatch({
-        type: 'SELECT_HERO',
-        id: h.id
-      })
+      onClick: () => {
+        if (state.phaseAnimating || h.hp <= 0 || h.done) return;
+        dispatch({
+          type: 'SELECT_HERO',
+          id: h.id
+        });
+        setMenu(h.id);
+      }
     }, spawning && /*#__PURE__*/React.createElement("div", {
       style: {
         position: 'absolute',
@@ -4361,38 +4285,147 @@ function BattleScreen({
       fontSize: f.big ? '1.05rem' : '.85rem',
       color: f.color
     }
-  }, f.text)))), /*#__PURE__*/React.createElement("div", {
+  }, f.text)), menuHero && (() => {
+    const flip = menuHero.x >= scenario.w - 4;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'absolute',
+        zIndex: 60,
+        width: 160,
+        left: flip ? menuHero.x * TILE - 6 : menuHero.x * TILE + TILE + 6,
+        top: Math.max(0, menuHero.y * TILE - 6),
+        transform: flip ? 'translateX(-100%)' : 'none',
+        padding: 10,
+        borderRadius: 10,
+        background: 'linear-gradient(160deg,#1a1640,#12102e)',
+        border: `1px solid ${menuHero.cl}55`,
+        boxShadow: '0 12px 40px rgba(0,0,0,.6)',
+        animation: 'fadeIn .15s ease both'
+      },
+      onClick: e => e.stopPropagation()
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        marginBottom: 7
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 26,
+        height: 26,
+        borderRadius: '50%',
+        overflow: 'hidden',
+        border: `2px solid ${menuHero.cl}`,
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement("img", {
+      src: menuHero.img,
+      alt: "",
+      style: {
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        objectPosition: '20% 10%'
+      },
+      onError: e => e.target.style.display = 'none'
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        color: menuHero.cl,
+        fontSize: '.74rem',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      }
+    }, menuHero.n), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: '.56rem',
+        color: 'var(--txt3)'
+      }
+    }, menuHero.hp, "/", menuHero.mhp, " HP")), /*#__PURE__*/React.createElement("span", {
+      onClick: () => setMenu(null),
+      style: {
+        cursor: 'pointer',
+        color: 'var(--txt3)',
+        fontSize: '.9rem',
+        lineHeight: 1,
+        padding: '0 2px'
+      }
+    }, "×")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: '.6rem',
+        color: 'var(--txt2)',
+        lineHeight: 1.5,
+        marginBottom: 8,
+        minHeight: '2.4em'
+      }
+    }, menuHero.done ? 'This hero has already acted.' : !menuHero.cardPlayed ? 'Play a card below, then move or attack.' : menuHero.atkLeft > 0 ? 'Click a teal tile to move · a red enemy to attack.' : 'Move to a teal tile, then end the turn.'), /*#__PURE__*/React.createElement(Btn, {
+      cls: "btn-ghost",
+      sm: true,
+      icon: SkipForward,
+      disabled: state.phaseAnimating || menuHero.done,
+      onClick: () => {
+        dispatch({
+          type: 'END_HERO_TURN'
+        });
+        setMenu(null);
+      }
+    }, "End Turn"));
+  })()), /*#__PURE__*/React.createElement("div", {
     style: {
-      width: 210,
-      flexShrink: 0,
-      borderLeft: '1px solid var(--border)',
+      position: 'absolute',
+      left: 12,
+      bottom: 10,
+      maxWidth: 240,
+      pointerEvents: 'none',
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden'
+      gap: 2
+    }
+  }, log.slice(0, 3).map((l, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      fontSize: '.6rem',
+      color: i === 0 ? 'var(--txt2)' : 'var(--txt3)',
+      opacity: i === 0 ? 1 : .55,
+      textShadow: '0 1px 3px rgba(0,0,0,.85)'
+    }
+  }, l)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flexShrink: 0,
+      borderTop: '1px solid var(--border)',
+      background: 'var(--panel)',
+      padding: '8px 12px',
+      minHeight: 98,
+      display: 'flex',
+      alignItems: 'center'
     }
   }, selHero ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      flexDirection: 'column',
-      height: '100%'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 10,
-      borderBottom: '1px solid var(--border)',
-      flexShrink: 0
+      alignItems: 'center',
+      gap: 12,
+      flex: 1,
+      minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
-      gap: 7,
-      marginBottom: 8
+      gap: 8,
+      flexShrink: 0,
+      width: 150
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: 34,
-      height: 34,
+      width: 38,
+      height: 38,
       borderRadius: '50%',
       overflow: 'hidden',
       border: `2px solid ${selHero.cl}`,
@@ -4408,64 +4441,35 @@ function BattleScreen({
       objectPosition: '20% 10%'
     },
     onError: e => e.target.style.display = 'none'
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       fontWeight: 700,
       color: selHero.cl,
-      fontSize: '.82rem'
+      fontSize: '.78rem',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
     }
   }, selHero.n), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: '.62rem',
-      color: 'var(--txt3)'
-    }
-  }, selHero.cardPlayed ? 'Card played' : 'Choose a card'))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4,1fr)',
-      gap: 3
-    }
-  }, [['AT', selHero.at, '#fbbf24'], ['MV', selHero.mv, '#2dd4bf'], ['RG', selHero.rg, '#a78bfa'], ['HP', selHero.hp, '#f87171']].map(([l, v, c]) => /*#__PURE__*/React.createElement("div", {
-    key: l,
-    style: {
-      textAlign: 'center',
-      padding: '3px 2px',
-      background: 'rgba(255,255,255,.03)',
-      borderRadius: 4
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.5rem',
+      display: 'flex',
+      gap: 6,
+      fontSize: '.56rem',
       color: 'var(--txt3)',
-      fontWeight: 700
+      marginTop: 2
     }
-  }, l), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.78rem',
-      fontWeight: 800,
-      color: c
-    }
-  }, v))))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "AT ", selHero.at), /*#__PURE__*/React.createElement("span", null, "MV ", selHero.mv), /*#__PURE__*/React.createElement("span", null, "RG ", selHero.rg)))), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
-      minHeight: 0,
-      overflowY: 'auto',
-      padding: 8
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.58rem',
-      fontWeight: 700,
-      letterSpacing: '.08em',
-      color: 'var(--txt3)',
-      marginBottom: 6,
-      textTransform: 'uppercase'
-    }
-  }, "Ability Cards"), /*#__PURE__*/React.createElement("div", {
-    style: {
+      minWidth: 0,
       display: 'flex',
-      flexDirection: 'column',
-      gap: 4
+      gap: 7,
+      overflowX: 'auto',
+      padding: '2px 0'
     }
   }, (selHero.cards || []).map(card => {
     const isSel = selectedCard === card.id;
@@ -4474,7 +4478,10 @@ function BattleScreen({
       key: card.id,
       className: `acard ${isSel ? 'acard-sel' : ''} ${card.tp === 'U' ? 'acard-ult' : ''}`,
       style: {
-        opacity: played ? .4 : 1,
+        minWidth: 136,
+        maxWidth: 136,
+        flexShrink: 0,
+        opacity: played ? .35 : 1,
         cursor: played ? 'default' : 'pointer'
       },
       onClick: () => !played && dispatch({
@@ -4490,105 +4497,55 @@ function BattleScreen({
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: '.7rem',
+        fontSize: '.68rem',
         fontWeight: 700,
-        color: card.tp === 'U' ? '#fbbf24' : 'var(--txt)'
+        color: card.tp === 'U' ? '#fbbf24' : 'var(--txt)',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
       }
     }, card.n), /*#__PURE__*/React.createElement("span", {
-      className: card.tp === 'U' ? 'chip chip-u' : 'chip chip-n'
+      className: card.tp === 'U' ? 'chip chip-u' : 'chip chip-n',
+      style: {
+        fontSize: '.5rem',
+        flexShrink: 0
+      }
     }, card.tp)), /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: '.61rem',
-        color: 'var(--txt2)'
+        fontSize: '.58rem',
+        color: 'var(--txt2)',
+        lineHeight: 1.35
       }
     }, card.d));
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 8,
-      borderTop: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 5,
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 5
-    }
-  }, /*#__PURE__*/React.createElement(Btn, {
-    cls: "btn-teal",
-    sm: true,
-    icon: Move,
-    disabled: !selHero.cardPlayed,
-    onClick: () => {},
-    style: {
-      flex: 1
-    }
-  }, "Move"), /*#__PURE__*/React.createElement(Btn, {
-    cls: "btn-red",
-    sm: true,
-    icon: Crosshair,
-    disabled: !selHero.cardPlayed || selHero.atkLeft <= 0,
-    onClick: () => {},
-    style: {
-      flex: 1
-    }
-  }, "Atk")), /*#__PURE__*/React.createElement(Btn, {
+  })), /*#__PURE__*/React.createElement(Btn, {
     cls: "btn-ghost",
     sm: true,
     icon: SkipForward,
     disabled: state.phaseAnimating,
-    onClick: () => dispatch({
-      type: 'END_HERO_TURN'
-    })
-  }, "End Turn"))) : /*#__PURE__*/React.createElement("div", {
+    onClick: () => {
+      dispatch({
+        type: 'END_HERO_TURN'
+      });
+      setMenu(null);
+    }
+  }, "End Turn")) : /*#__PURE__*/React.createElement("div", {
     style: {
+      flex: 1,
       display: 'flex',
-      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      height: '100%',
       gap: 8,
-      padding: 16,
-      opacity: .45
+      opacity: .5
     }
   }, /*#__PURE__*/React.createElement(User, {
-    size: 28,
+    size: 18,
     color: "var(--txt3)"
-  }), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: '.72rem',
-      color: 'var(--txt3)',
-      textAlign: 'center'
+      color: 'var(--txt3)'
     }
-  }, "Select a hero to command")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 110,
-      borderTop: '1px solid var(--border)',
-      overflowY: 'auto',
-      padding: 7,
-      background: 'rgba(0,0,0,.2)',
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: '.56rem',
-      fontWeight: 700,
-      letterSpacing: '.08em',
-      color: 'var(--txt3)',
-      marginBottom: 3,
-      textTransform: 'uppercase'
-    }
-  }, "Log"), log.map((l, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: {
-      fontSize: '.62rem',
-      color: i === 0 ? 'var(--txt2)' : 'var(--txt3)',
-      padding: '1px 0',
-      lineHeight: 1.4
-    }
-  }, l))))), introActive && /*#__PURE__*/React.createElement("div", {
+  }, "Click a hero on the board to command — then play a card.")))), introActive && /*#__PURE__*/React.createElement("div", {
     onClick: () => dispatch({
       type: 'SET_INTRO',
       stage: 'done'

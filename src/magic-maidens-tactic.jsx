@@ -1073,13 +1073,14 @@ function PostBattle({state,dispatch}){
 function BattleScreen({state,dispatch}){
   const{heroes,enemies,selectedHeroId,selectedCard,moveRange,atkRange,phase,round,log,result,scenario,floaters,hitFlash,playingCard}=state
   const selHero=heroes.find(h=>h.id===selectedHeroId)
-  const TILE=38
+  const TILE=48
   const moveSet=useMemo(()=>new Set(moveRange.map(t=>`${t.x},${t.y}`)),[moveRange])
   const atkSet=useMemo(()=>new Set(atkRange.map(e=>e.id)),[atkRange])
   const wallSet=useMemo(()=>new Set((scenario?.walls||[]).map(([x,y])=>`${x},${y}`)),[scenario])
 
   // ── Game-feel: ticking clock for hit-flash expiry ──
   const [now,setNow]=useState(Date.now())
+  const [menu,setMenu]=useState(null)   // token popup: heroId | null (local UI only)
   useEffect(()=>{
     const anyFlash=Object.keys(hitFlash||{}).length>0
     if(!anyFlash) return
@@ -1172,9 +1173,13 @@ function BattleScreen({state,dispatch}){
     return ()=>clearTimeout(t)
   },[state.introStage,dispatch])
 
+  // Close the token popup when it can no longer act on it
+  useEffect(()=>{ if(phase!=='player'||result||state.introStage!=='done') setMenu(null) },[phase,result,state.introStage])
+
   if(!scenario) return null
   const introStep={map:0,heroes:1,enemies:2,objective:3,done:4}[state.introStage]??4
   const introActive=introStep<4
+  const menuHero=(menu&&heroes.find(h=>h.id===menu&&h.hp>0))||null
   return(
     <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden',background:'var(--bg)'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
@@ -1191,71 +1196,44 @@ function BattleScreen({state,dispatch}){
             ◆ {phase==='player'?'PLAYER PHASE':'ENEMY PHASE'}
           </div>
         </div>
-        <div style={{display:'flex',gap:5}}>
-          {heroes.map(h=>(
-            <div key={h.id} style={{display:'flex',alignItems:'center',gap:5,
-              padding:'3px 7px',borderRadius:7,background:'var(--bg2)',
-              border:`1px solid ${h.hp>0?h.cl+'44':'rgba(255,255,255,.05)'}`,opacity:h.hp>0?1:.4}}>
-              <div style={{width:18,height:18,borderRadius:'50%',overflow:'hidden',
-                border:`1px solid ${h.cl}55`,flexShrink:0}}>
-                <img src={h.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'20% 10%'}}
-                  onError={e=>e.target.style.display='none'}/>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
+          <div style={{display:'flex',gap:5}}>
+            {heroes.map(h=>(
+              <div key={h.id} style={{display:'flex',alignItems:'center',gap:5,
+                padding:'3px 7px',borderRadius:7,background:'var(--bg2)',
+                border:`1px solid ${h.hp>0?h.cl+'44':'rgba(255,255,255,.05)'}`,opacity:h.hp>0?1:.4}}>
+                <div style={{width:18,height:18,borderRadius:'50%',overflow:'hidden',
+                  border:`1px solid ${h.cl}55`,flexShrink:0}}>
+                  <img src={h.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'20% 10%'}}
+                    onError={e=>e.target.style.display='none'}/>
+                </div>
+                <div>
+                  <div style={{fontSize:'.56rem',color:'var(--txt3)',fontWeight:600}}>{h.n}</div>
+                  <div style={{width:44}}><HpBar hp={h.hp} mhp={h.mhp} cl={h.cl}/></div>
+                </div>
               </div>
-              <div>
-                <div style={{fontSize:'.56rem',color:'var(--txt3)',fontWeight:600}}>{h.n}</div>
-                <div style={{width:44}}><HpBar hp={h.hp} mhp={h.mhp} cl={h.cl}/></div>
+            ))}
+          </div>
+          <div style={{width:1,height:22,background:'var(--border)'}}/>
+          <div style={{display:'flex',gap:4}}>
+            {enemies.filter(e=>e.hp>0).map(e=>(
+              <div key={e.id} title={e.n} style={{display:'flex',alignItems:'center',gap:4,
+                padding:'3px 6px',borderRadius:7,background:'rgba(248,113,113,.06)',
+                border:'1px solid rgba(248,113,113,.15)'}}>
+                <span style={{fontSize:'.72rem'}}>{e.ic}</span>
+                <div style={{width:28}}><HpBar hp={e.hp} mhp={e.mhp} cl='#f87171'/></div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
         <div style={{display:'flex',gap:6}}>
           <Btn cls="btn-ghost" sm icon={BookOpen} onClick={()=>dispatch({type:'GO',to:'knowledge'})}>KB</Btn>
           <Btn cls="btn-ghost" sm icon={Settings} onClick={()=>dispatch({type:'GO',to:'admin'})}>Dev</Btn>
         </div>
       </div>
-      <div style={{flex:1,minHeight:0,display:'flex',overflow:'hidden'}}>
-        <div style={{width:172,flexShrink:0,borderRight:'1px solid var(--border)',
-          overflowY:'auto',padding:8,display:'flex',flexDirection:'column',gap:5}}>
-          <div style={{fontSize:'.58rem',fontWeight:700,letterSpacing:'.1em',color:'var(--txt3)',
-            marginBottom:2,textTransform:'uppercase'}}>Party</div>
-          {heroes.map(h=>(
-            <div key={h.id} style={{borderRadius:7,padding:7,cursor:h.hp>0&&!h.done?'pointer':'default',
-              background:selectedHeroId===h.id?`${h.cl}11`:'rgba(255,255,255,.02)',
-              border:`1px solid ${selectedHeroId===h.id?h.cl+'44':'transparent'}`,
-              opacity:h.hp<=0?.35:h.done?.55:1,transition:'all .15s'}}
-              onClick={()=>!state.phaseAnimating&&h.hp>0&&!h.done&&dispatch({type:'SELECT_HERO',id:h.id})}>
-              <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:4}}>
-                <div style={{width:24,height:24,borderRadius:'50%',overflow:'hidden',
-                  border:`2px solid ${h.cl}55`,flexShrink:0}}>
-                  <img src={h.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'20% 10%'}}
-                    onError={e=>e.target.style.display='none'}/>
-                </div>
-                <div style={{minWidth:0}}>
-                  <div style={{fontSize:'.7rem',fontWeight:700,color:h.cl,
-                    whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{h.n}</div>
-                  <div style={{fontSize:'.6rem',color:'var(--txt3)'}}>{h.hp}/{h.mhp} HP</div>
-                </div>
-                {h.done&&<span style={{marginLeft:'auto',fontSize:'.58rem',color:'var(--txt3)'}}>&#10003;</span>}
-                {h.hp<=0&&<Skull size={11} color="#f87171" style={{marginLeft:'auto'}}/>}
-              </div>
-              <HpBar hp={h.hp} mhp={h.mhp} cl={h.cl}/>
-            </div>
-          ))}
-          <div style={{fontSize:'.58rem',fontWeight:700,letterSpacing:'.1em',color:'var(--txt3)',
-            marginTop:6,textTransform:'uppercase'}}>Enemies</div>
-          {enemies.filter(e=>e.hp>0).map(e=>(
-            <div key={e.id} style={{padding:'5px 7px',borderRadius:6,
-              background:'rgba(248,113,113,.05)',border:'1px solid rgba(248,113,113,.12)'}}>
-              <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:3}}>
-                <span style={{fontSize:'.78rem'}}>{e.ic}</span>
-                <span style={{fontSize:'.68rem',fontWeight:600,color:'var(--txt2)'}}>{e.n}</span>
-              </div>
-              <HpBar hp={e.hp} mhp={e.mhp} cl='#f87171'/>
-            </div>
-          ))}
-        </div>
-        <div style={{flex:1,minWidth:0,overflow:'auto',display:'flex',
-          alignItems:'center',justifyContent:'center',padding:8,background:'var(--bg)'}}>
+      <div style={{flex:1,minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{flex:1,minWidth:0,minHeight:0,position:'relative',overflow:'auto',display:'flex',
+          alignItems:'center',justifyContent:'center',padding:14,background:'var(--bg)'}}>
           <div style={{position:'relative',
             width:scenario.w*TILE,height:scenario.h*TILE}}>
             {/* Tile grid layer (clickable) */}
@@ -1293,7 +1271,7 @@ function BattleScreen({state,dispatch}){
                 <div key={h.id} className={`board-token ${dyingIds.has(h.id)?'dying':''} ${flashing?'flashing':''}`}
                   style={{left:h.x*TILE,top:h.y*TILE,width:TILE,height:TILE,
                     display:'flex',alignItems:'center',justifyContent:'center'}}
-                  onClick={()=>!state.phaseAnimating&&h.hp>0&&!h.done&&dispatch({type:'SELECT_HERO',id:h.id})}>
+                  onClick={()=>{if(state.phaseAnimating||h.hp<=0||h.done)return;dispatch({type:'SELECT_HERO',id:h.id});setMenu(h.id)}}>
                   {spawning&&(
                     <div style={{position:'absolute',top:-13,left:'50%',transform:'translateX(-50%)',
                       fontSize:'.5rem',fontWeight:800,letterSpacing:'.14em',textTransform:'uppercase',
@@ -1349,77 +1327,92 @@ function BattleScreen({state,dispatch}){
                 {f.text}
               </div>
             ))}
-          </div>
-        </div>
-        <div style={{width:210,flexShrink:0,borderLeft:'1px solid var(--border)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-          {selHero?(
-            <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
-              <div style={{padding:10,borderBottom:'1px solid var(--border)',flexShrink:0}}>
-                <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:8}}>
-                  <div style={{width:34,height:34,borderRadius:'50%',overflow:'hidden',border:`2px solid ${selHero.cl}`,flexShrink:0}}>
-                    <img src={selHero.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'20% 10%'}}
-                      onError={e=>e.target.style.display='none'}/>
-                  </div>
-                  <div>
-                    <div style={{fontWeight:700,color:selHero.cl,fontSize:'.82rem'}}>{selHero.n}</div>
-                    <div style={{fontSize:'.62rem',color:'var(--txt3)'}}>{selHero.cardPlayed?'Card played':'Choose a card'}</div>
-                  </div>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:3}}>
-                  {[['AT',selHero.at,'#fbbf24'],['MV',selHero.mv,'#2dd4bf'],['RG',selHero.rg,'#a78bfa'],['HP',selHero.hp,'#f87171']].map(([l,v,c])=>(
-                    <div key={l} style={{textAlign:'center',padding:'3px 2px',background:'rgba(255,255,255,.03)',borderRadius:4}}>
-                      <div style={{fontSize:'.5rem',color:'var(--txt3)',fontWeight:700}}>{l}</div>
-                      <div style={{fontSize:'.78rem',fontWeight:800,color:c}}>{v}</div>
+            {/* Token command popup — local UI state only, never touches game state */}
+            {menuHero&&(()=>{
+              const flip=menuHero.x>=scenario.w-4
+              return(
+                <div style={{position:'absolute',zIndex:60,width:160,
+                  left:flip?menuHero.x*TILE-6:menuHero.x*TILE+TILE+6,
+                  top:Math.max(0,menuHero.y*TILE-6),
+                  transform:flip?'translateX(-100%)':'none',
+                  padding:10,borderRadius:10,background:'linear-gradient(160deg,#1a1640,#12102e)',
+                  border:`1px solid ${menuHero.cl}55`,boxShadow:'0 12px 40px rgba(0,0,0,.6)',
+                  animation:'fadeIn .15s ease both'}}
+                  onClick={e=>e.stopPropagation()}>
+                  <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:7}}>
+                    <div style={{width:26,height:26,borderRadius:'50%',overflow:'hidden',border:`2px solid ${menuHero.cl}`,flexShrink:0}}>
+                      <img src={menuHero.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'20% 10%'}} onError={e=>e.target.style.display='none'}/>
                     </div>
-                  ))}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,color:menuHero.cl,fontSize:'.74rem',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{menuHero.n}</div>
+                      <div style={{fontSize:'.56rem',color:'var(--txt3)'}}>{menuHero.hp}/{menuHero.mhp} HP</div>
+                    </div>
+                    <span onClick={()=>setMenu(null)} style={{cursor:'pointer',color:'var(--txt3)',fontSize:'.9rem',lineHeight:1,padding:'0 2px'}}>×</span>
+                  </div>
+                  <div style={{fontSize:'.6rem',color:'var(--txt2)',lineHeight:1.5,marginBottom:8,minHeight:'2.4em'}}>
+                    {menuHero.done?'This hero has already acted.'
+                      :!menuHero.cardPlayed?'Play a card below, then move or attack.'
+                      :menuHero.atkLeft>0?'Click a teal tile to move · a red enemy to attack.'
+                      :'Move to a teal tile, then end the turn.'}
+                  </div>
+                  <Btn cls="btn-ghost" sm icon={SkipForward} disabled={state.phaseAnimating||menuHero.done}
+                    onClick={()=>{dispatch({type:'END_HERO_TURN'});setMenu(null)}}>End Turn</Btn>
                 </div>
-              </div>
-              <div style={{flex:1,minHeight:0,overflowY:'auto',padding:8}}>
-                <div style={{fontSize:'.58rem',fontWeight:700,letterSpacing:'.08em',color:'var(--txt3)',marginBottom:6,textTransform:'uppercase'}}>Ability Cards</div>
-                <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                  {(selHero.cards||[]).map(card=>{
-                    const isSel=selectedCard===card.id
-                    const played=selHero.cardPlayed&&selHero.cardPlayed!==card.id
-                    return(
-                      <div key={card.id}
-                        className={`acard ${isSel?'acard-sel':''} ${card.tp==='U'?'acard-ult':''}`}
-                        style={{opacity:played?.4:1,cursor:played?'default':'pointer'}}
-                        onClick={()=>!played&&dispatch({type:'SELECT_CARD',id:card.id})}>
-                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2}}>
-                          <span style={{fontSize:'.7rem',fontWeight:700,color:card.tp==='U'?'#fbbf24':'var(--txt)'}}>{card.n}</span>
-                          <span className={card.tp==='U'?'chip chip-u':'chip chip-n'}>{card.tp}</span>
-                        </div>
-                        <div style={{fontSize:'.61rem',color:'var(--txt2)'}}>{card.d}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-              <div style={{padding:8,borderTop:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:5,flexShrink:0}}>
-                <div style={{display:'flex',gap:5}}>
-                  <Btn cls="btn-teal" sm icon={Move} disabled={!selHero.cardPlayed}
-                    onClick={()=>{}} style={{flex:1}}>Move</Btn>
-                  <Btn cls="btn-red" sm icon={Crosshair} disabled={!selHero.cardPlayed||selHero.atkLeft<=0}
-                    onClick={()=>{}} style={{flex:1}}>Atk</Btn>
-                </div>
-                <Btn cls="btn-ghost" sm icon={SkipForward} disabled={state.phaseAnimating} onClick={()=>dispatch({type:'END_HERO_TURN'})}>End Turn</Btn>
-              </div>
-            </div>
-          ):(
-            <div style={{display:'flex',flexDirection:'column',alignItems:'center',
-              justifyContent:'center',height:'100%',gap:8,padding:16,opacity:.45}}>
-              <User size={28} color="var(--txt3)"/>
-              <div style={{fontSize:'.72rem',color:'var(--txt3)',textAlign:'center'}}>Select a hero to command</div>
-            </div>
-          )}
-          <div style={{height:110,borderTop:'1px solid var(--border)',overflowY:'auto',
-            padding:7,background:'rgba(0,0,0,.2)',flexShrink:0}}>
-            <div style={{fontSize:'.56rem',fontWeight:700,letterSpacing:'.08em',
-              color:'var(--txt3)',marginBottom:3,textTransform:'uppercase'}}>Log</div>
-            {log.map((l,i)=>(
-              <div key={i} style={{fontSize:'.62rem',color:i===0?'var(--txt2)':'var(--txt3)',padding:'1px 0',lineHeight:1.4}}>{l}</div>
+              )
+            })()}
+          </div>
+          {/* Log toast — de-emphasized, latest lines only */}
+          <div style={{position:'absolute',left:12,bottom:10,maxWidth:240,pointerEvents:'none',
+            display:'flex',flexDirection:'column',gap:2}}>
+            {log.slice(0,3).map((l,i)=>(
+              <div key={i} style={{fontSize:'.6rem',color:i===0?'var(--txt2)':'var(--txt3)',
+                opacity:i===0?1:.55,textShadow:'0 1px 3px rgba(0,0,0,.85)'}}>{l}</div>
             ))}
           </div>
+        </div>
+        {/* Bottom action bar — hero · card hand · end turn, hugging the board */}
+        <div style={{flexShrink:0,borderTop:'1px solid var(--border)',background:'var(--panel)',
+          padding:'8px 12px',minHeight:98,display:'flex',alignItems:'center'}}>
+          {selHero?(
+            <div style={{display:'flex',alignItems:'center',gap:12,flex:1,minWidth:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0,width:150}}>
+                <div style={{width:38,height:38,borderRadius:'50%',overflow:'hidden',border:`2px solid ${selHero.cl}`,flexShrink:0}}>
+                  <img src={selHero.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'20% 10%'}} onError={e=>e.target.style.display='none'}/>
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:700,color:selHero.cl,fontSize:'.78rem',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{selHero.n}</div>
+                  <div style={{display:'flex',gap:6,fontSize:'.56rem',color:'var(--txt3)',marginTop:2}}>
+                    <span>AT {selHero.at}</span><span>MV {selHero.mv}</span><span>RG {selHero.rg}</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{flex:1,minWidth:0,display:'flex',gap:7,overflowX:'auto',padding:'2px 0'}}>
+                {(selHero.cards||[]).map(card=>{
+                  const isSel=selectedCard===card.id
+                  const played=selHero.cardPlayed&&selHero.cardPlayed!==card.id
+                  return(
+                    <div key={card.id}
+                      className={`acard ${isSel?'acard-sel':''} ${card.tp==='U'?'acard-ult':''}`}
+                      style={{minWidth:136,maxWidth:136,flexShrink:0,opacity:played?.35:1,cursor:played?'default':'pointer'}}
+                      onClick={()=>!played&&dispatch({type:'SELECT_CARD',id:card.id})}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2}}>
+                        <span style={{fontSize:'.68rem',fontWeight:700,color:card.tp==='U'?'#fbbf24':'var(--txt)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{card.n}</span>
+                        <span className={card.tp==='U'?'chip chip-u':'chip chip-n'} style={{fontSize:'.5rem',flexShrink:0}}>{card.tp}</span>
+                      </div>
+                      <div style={{fontSize:'.58rem',color:'var(--txt2)',lineHeight:1.35}}>{card.d}</div>
+                    </div>
+                  )
+                })}
+              </div>
+              <Btn cls="btn-ghost" sm icon={SkipForward} disabled={state.phaseAnimating}
+                onClick={()=>{dispatch({type:'END_HERO_TURN'});setMenu(null)}}>End Turn</Btn>
+            </div>
+          ):(
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:8,opacity:.5}}>
+              <User size={18} color="var(--txt3)"/>
+              <span style={{fontSize:'.72rem',color:'var(--txt3)'}}>Click a hero on the board to command — then play a card.</span>
+            </div>
+          )}
         </div>
       </div>
       {/* Phase transition banner */}
