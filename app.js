@@ -24,13 +24,13 @@ function render(){
 
 function titleScreen(){ return `
   <section class="title-screen">
-    <div class="grain"></div><div class="rift rift-a"></div><div class="rift rift-b"></div>
+    <div class="grain"></div><div class="ambient"><i></i><i></i><i></i><i></i><i></i></div><div class="rift rift-a"></div><div class="rift rift-b"></div>
     <div class="title-mark"><span></span><i>MM</i><span></span></div>
     <p class="eyebrow">A tactical chronicle</p>
     <h1>Magic Maidens<br><em>Tactic</em></h1>
     <p class="title-copy">Nine places at the table.<br>Only five names remain.</p>
-    <div class="title-actions">${button('Begin the rework prologue','start')}<button class="text-btn" data-action="legacy">Legacy archive <span>↗</span></button></div>
-    <p class="build-tag">Narrative prototype · Act I / Chapter 01</p>
+    <div class="title-actions">${button('Begin the prologue','start')}</div>
+    <footer class="title-footer"><span>A story-driven tactical RPG</span><i></i><span>Original world by Soft</span></footer>
   </section>` }
 
 function whisperScreen(){ return `
@@ -146,7 +146,6 @@ function act(action){
  if(action==='move-hero'&&state.tutorial===3){state.moved=true;state.tutorial=4}
  if(action==='end-turn'&&state.tutorial===5)state.tutorial=6
  if(action==='finish-tutorial'){state.tutorial=7;document.querySelector('.tutorial-callout')?.classList.add('complete')}
- if(action==='legacy') location.href='legacy/index.html'
  render()
 }
 render()
