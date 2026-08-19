@@ -208,3 +208,10 @@
 - นำ exit indicator ออกจาก Objective ของ Chapter 1 ระหว่าง Battle
 - เริ่ม application ใหม่พร้อม Prologue, selection, meeting, Impact, Prelude และ Tutorial
 - ย้าย runtime, source, tests และ assets ของเกมเดิมไปไว้ใน `legacy/`
+
+## 2026-08-19 — Title and Scene Motion
+
+- ลดปุ่มหน้าแรกเหลือข้อความ `Start` โดยไม่มีไอคอนลูกศร
+- เพิ่ม hover/focus motion ให้ข้อความ เส้นทอง และเครื่องหมายประดับของปุ่ม Start
+- เพิ่ม fade, blur, scale และ background curtain ระหว่างทุกฉากหลัก
+- รองรับ reduced-motion โดยปิด cinematic transitions ให้อัตโนมัติ

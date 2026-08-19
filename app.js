@@ -11,15 +11,29 @@ const HEROES = [
 
 const state = { screen:'title', selected:[], inspect:null, storyIndex:0, tutorial:0, activeHero:null, cardPlayed:false, moved:false, enemyHp:[8,10,8] }
 const app = document.querySelector('#app')
+let transitioning = false
 const icon = (name) => ({arrow:'→', check:'✓', target:'⌖', move:'◇', card:'▱', sword:'⚔', hour:'◷', info:'i'}[name] || '•')
 
 function button(label, action, cls='primary', disabled=false){
   return `<button class="btn ${cls}" data-action="${action}" ${disabled?'disabled':''}><span>${label}</span><b>${icon('arrow')}</b></button>`
 }
-function render(){
-  app.className = `screen screen-${state.screen}`
+function render(entering=false){
+  app.className = `screen screen-${state.screen}${entering?' screen-entering':''}`
   app.innerHTML = ({title:titleScreen, whisper:whisperScreen, select:selectScreen, meeting:meetingScreen, impact:impactScreen, prelude:preludeScreen, battle:battleScreen}[state.screen] || titleScreen)()
   bind()
+}
+function navigate(to){
+  if(transitioning || state.screen===to) return
+  transitioning = true
+  app.classList.add('screen-leave')
+  window.setTimeout(()=>{
+    state.screen = to
+    render(true)
+    window.setTimeout(()=>{
+      app.classList.remove('screen-entering')
+      transitioning = false
+    }, 760)
+  }, 460)
 }
 
 function titleScreen(){ return `
@@ -29,7 +43,7 @@ function titleScreen(){ return `
     <p class="eyebrow">A tactical chronicle</p>
     <h1>Magic Maidens<br><em>Tactic</em></h1>
     <p class="title-copy">Nine places at the table.<br>Only five names remain.</p>
-    <div class="title-actions">${button('Begin the prologue','start')}</div>
+    <div class="title-actions"><button class="title-start" data-action="start"><span>Start</span><i></i></button></div>
     <footer class="title-footer"><span>A story-driven tactical RPG</span><i></i><span>Original world by Soft</span></footer>
   </section>` }
 
@@ -133,14 +147,14 @@ function bind(){
  document.querySelectorAll('[data-enemy]').forEach(el=>el.addEventListener('click',()=>{if(state.tutorial===4){state.enemyHp[+el.dataset.enemy]-=6;state.tutorial=5;render()}}))
 }
 function act(action){
- if(action==='start') state.screen='whisper'
- if(action==='advance-whisper') state.screen='select'
+ if(action==='start') return navigate('whisper')
+ if(action==='advance-whisper') return navigate('select')
  if(action==='close-inspect') state.inspect=null
  if(action==='toggle-hero'&&state.inspect){const i=state.selected.indexOf(state.inspect);i>=0?state.selected.splice(i,1):state.selected.length<4&&state.selected.push(state.inspect)}
- if(action==='confirm-party'&&state.selected.length===4) state.screen='meeting'
- if(action==='meeting-next') state.screen='impact'
- if(action==='to-prelude') state.screen='prelude'
- if(action==='deploy') state.screen='battle'
+ if(action==='confirm-party'&&state.selected.length===4) return navigate('meeting')
+ if(action==='meeting-next') return navigate('impact')
+ if(action==='to-prelude') return navigate('prelude')
+ if(action==='deploy') return navigate('battle')
  if(action==='tutorial-next') state.tutorial++
  if(action==='play-card'&&state.tutorial===2&&state.activeHero){state.cardPlayed=true;state.tutorial=3}
  if(action==='move-hero'&&state.tutorial===3){state.moved=true;state.tutorial=4}

@@ -28,3 +28,23 @@
 @keyframes riftBreath{0%,100%{opacity:.55;filter:brightness(.72);box-shadow:0 0 18px var(--gold),0 0 65px rgba(216,182,106,.22)}50%{opacity:1;filter:brightness(1.18);box-shadow:0 0 32px var(--gold),0 0 115px rgba(216,182,106,.42)}}
 @keyframes emberFloat{0%{opacity:0;transform:translate3d(0,20px,0) scale(.5)}20%{opacity:.5}70%{opacity:.2}100%{opacity:0;transform:translate3d(20px,-65vh,0) scale(1.4)}}
 @media(max-width:600px){.title-footer{width:100%;justify-content:center;white-space:normal;text-align:center;letter-spacing:.1em}}
+
+/* Cinematic navigation — every full-screen scene leaves and arrives deliberately. */
+.screen{position:relative;isolation:isolate;background:var(--ink)}
+.screen:after{content:"";position:fixed;z-index:999;inset:-15%;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(216,182,106,.08),transparent 24%),linear-gradient(115deg,#05070b 25%,#111827 50%,#05070b 75%);opacity:0;transform:translate3d(-110%,0,0) skewX(-7deg)}
+.screen-leave>section{animation:sceneLeave .46s var(--ease) both;pointer-events:none}
+.screen-leave:after{animation:curtainIn .5s var(--ease) both}
+.screen-entering>section{animation:sceneEnter .72s var(--ease) both}
+.screen-entering:after{animation:curtainOut .72s var(--ease) both}
+.title-start{position:relative;min-width:112px;padding:9px 8px 13px;border:0;background:transparent;color:var(--gold2);font:600 13px Cinzel,serif;letter-spacing:.28em;text-indent:.28em;text-transform:uppercase;cursor:pointer;transition:color .3s var(--ease),letter-spacing .4s var(--ease),text-shadow .3s var(--ease)}
+.title-start i{position:absolute;left:50%;bottom:3px;width:38px;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent);transform:translateX(-50%) scaleX(.45);transition:transform .45s var(--ease),box-shadow .45s var(--ease)}
+.title-start:before,.title-start:after{content:"";position:absolute;top:50%;width:3px;height:3px;border:1px solid var(--gold);opacity:0;transform:translateY(-50%) rotate(45deg);transition:.4s var(--ease)}
+.title-start:before{left:2px}.title-start:after{right:2px}
+.title-start:hover,.title-start:focus-visible{outline:0;color:#fff;letter-spacing:.36em;text-shadow:0 0 22px rgba(255,225,160,.65)}
+.title-start:hover i,.title-start:focus-visible i{transform:translateX(-50%) scaleX(1.7);box-shadow:0 0 14px rgba(216,182,106,.7)}
+.title-start:hover:before,.title-start:hover:after,.title-start:focus-visible:before,.title-start:focus-visible:after{opacity:.8}
+@keyframes sceneLeave{0%{opacity:1;filter:blur(0) brightness(1);transform:scale(1)}100%{opacity:0;filter:blur(8px) brightness(.45);transform:scale(1.025)}}
+@keyframes sceneEnter{0%{opacity:0;filter:blur(11px) brightness(.55);transform:scale(1.035)}55%{opacity:1;filter:blur(2px) brightness(.92)}100%{opacity:1;filter:none;transform:scale(1)}}
+@keyframes curtainIn{0%{opacity:0;transform:translate3d(-110%,0,0) skewX(-7deg)}100%{opacity:1;transform:translate3d(0,0,0) skewX(-7deg)}}
+@keyframes curtainOut{0%{opacity:1;transform:translate3d(0,0,0) skewX(-7deg)}100%{opacity:0;transform:translate3d(110%,0,0) skewX(-7deg)}}
+@media(prefers-reduced-motion:reduce){.screen-leave>section,.screen-entering>section,.screen-leave:after,.screen-entering:after{animation:none!important}.screen:after{display:none}}
