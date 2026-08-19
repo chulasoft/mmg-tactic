@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Magic Maidens Tactic</title>
+
+<meta name="description" content="A tactical, turn-based, story-driven RPG. Eight warriors. One truth. No mercy.">
+<meta name="theme-color" content="#070612">
+<meta property="og:title" content="Magic Maidens Tactic">
+<meta property="og:description" content="A tactical, turn-based, story-driven RPG.">
+<meta property="og:type" content="website">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://unpkg.com">
+
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#070612;color:#e2e0f5;overflow:hidden;
+    font-family:'Outfit',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  #root{width:100%;height:100dvh}
+
+  /* Boot screen — shown until React mounts */
+  #boot{position:fixed;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:22px;background:#070612;z-index:9999;
+    transition:opacity .5s ease}
+  #boot.gone{opacity:0;pointer-events:none}
+  #boot .title{font-family:Georgia,serif;font-style:italic;font-weight:700;
+    font-size:clamp(1.4rem,4vw,2.2rem);letter-spacing:.03em;
+    background:linear-gradient(135deg,#fef3c7,#fbbf24,#f59e0b);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  #boot .bar{width:180px;height:2px;background:rgba(255,255,255,.08);
+    border-radius:2px;overflow:hidden}
+  #boot .bar i{display:block;height:100%;width:35%;border-radius:2px;
+    background:linear-gradient(90deg,rgba(251,191,36,.3),#fbbf24);
+    animation:bootSlide 1.1s ease-in-out infinite}
+  @keyframes bootSlide{0%{transform:translateX(-100%)}100%{transform:translateX(390%)}}
+  #boot .hint{font-size:.62rem;letter-spacing:.28em;text-transform:uppercase;
+    color:rgba(255,255,255,.22)}
+  #boot .err{display:none;max-width:420px;padding:14px 18px;border-radius:10px;
+    background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);
+    color:#f87171;font-size:.78rem;line-height:1.6;text-align:center}
+</style>
+</head>
+<body>
+  <div id="boot">
+    <div class="title">Magic Maidens Tactic</div>
+    <div class="bar"><i></i></div>
+    <div class="hint" id="bootHint">loading</div>
+    <div class="err" id="bootErr"></div>
+  </div>
+
+  <div id="root"></div>
+
+  <script>
+    window.__bootFail = function(msg){
+      var e=document.getElementById('bootErr');
+      var h=document.getElementById('bootHint');
+      if(h) h.style.display='none';
+      if(e){ e.style.display='block'; e.textContent=msg; }
+    };
+    window.addEventListener('error', function(ev){
+      if(!document.getElementById('boot').classList.contains('gone')){
+        window.__bootFail('Failed to load: '+(ev.message||'unknown error')+
+          ' — check your connection and refresh.');
+      }
+    });
+  </script>
+
+  <!-- React 18 (production UMD) -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+  <script>
+    if(!window.React || !window.ReactDOM){
+      window.__bootFail('Could not load React from CDN. Check your internet connection.');
+    }
+  </script>
+
+  <!-- Game bundle -->
+  <script src="app.js"></script>
+
+  <script>
+    // Hide boot screen once the app has rendered
+    (function(){
+      var boot=document.getElementById('boot');
+      var root=document.getElementById('root');
+      var tries=0;
+      var iv=setInterval(function(){
+        tries++;
+        if(root && root.childElementCount>0){
+          clearInterval(iv);
+          boot.classList.add('gone');
+          setTimeout(function(){ boot.remove(); },600);
+        } else if(tries>60){
+          clearInterval(iv);
+          window.__bootFail('The game did not start. Try a hard refresh (Ctrl/Cmd + Shift + R).');
+        }
+      },100);
+    })();
+  </script>
+</body>
+</html>
