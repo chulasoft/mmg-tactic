@@ -115,7 +115,9 @@
 
 - เปิดด้วยเสียงเรียกให้ตัวเอกกลับไปยังสถานที่ที่จากมา
 - ห้ามใช้ “They’re waiting for you.”
-- การเลือกสมาชิกทีมต้องกลืนไปกับฉากประชุมบนโต๊ะ
+- การเลือกสมาชิกทีมใช้หน้า silhouette แปดใบที่เปิด portrait แบบ fade เมื่อ hover
+- หน้าเลือกต้องสอนความหมายของรายละเอียดและค่าสถานะเพื่อช่วยผู้เล่นตัดสินใจ
+- เมื่อเลือกครบสี่คนจึงกลับเข้าสู่เนื้อหาการประชุมบนโต๊ะ
 - ไม่อธิบายสถานะภายใน Arsenal ในบทเปิด
 - เมื่อพยายามเรียก Arsenal ตัวเอกปวดศีรษะและไม่สามารถดึงอาวุธออกมาได้
 - ทีมสี่คนจึงออกไปต่อสู้ก่อนโดยไม่มีตัวเอกเป็น playable unit
@@ -128,6 +130,7 @@
 - ปีศาจปิดเส้นทางไปลานกลางหมู่บ้าน
 - ตัวเอกสั่งให้ทีมเคลียร์พื้นที่
 - Tutorial ต้องสอนการทำความเข้าใจ Objective เพิ่มจาก basic combat flow
+- Objective บทแรกคือกำจัดปีศาจทั้งหมด โดยไม่ต้องแสดง exit indicator ระหว่าง Battle
 - ไม่มี Arsenal event
 - ไม่มี reinforcement/“More Are Coming” event
 - Aftermath สรุปว่าเคลียร์พื้นที่หน้าโรงเตี๊ยมสำเร็จ
@@ -197,3 +200,11 @@
 - ปิดข้อมูล Arsenal ใน Prologue และ Chapter 1
 - ร่าง Chapter 1 — The First Impact แบบละเอียด
 - เพิ่ม Objective tutorial และ scripted exit ทางขวาของกระดาน
+
+## 2026-08-19 — New Prototype Patch
+
+- แก้ Party Selection เป็น silhouette roster แปดใบพร้อม hover/fade detail panel
+- เพิ่มคำอธิบาย HP, ATK, MOV และ RNG สำหรับการตัดสินใจเลือกทีม
+- นำ exit indicator ออกจาก Objective ของ Chapter 1 ระหว่าง Battle
+- เริ่ม application ใหม่พร้อม Prologue, selection, meeting, Impact, Prelude และ Tutorial
+- ย้าย runtime, source, tests และ assets ของเกมเดิมไปไว้ใน `legacy/`
