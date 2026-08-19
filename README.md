@@ -1,4 +1,4 @@
-# Magic Maidens Tactic
+# Magic Maidens Tactic — Rework
 
 A story-driven tactical RPG currently focused on the
 Prologue, narrative party selection, and Chapter 1 tutorial experience.
